@@ -268,13 +268,6 @@ class CallSession:
         if self._prep is None:
             self._prep = asyncio.create_task(self._prepare_webrtc())
         await self._prep
-        # Đợi đủ offer_delay_seconds kể từ lúc adminroot nghe máy rồi mới gửi offer
-        # (trước đây offer tới app ~5s sau khi nghe vì phải gom ICE; gửi ngay ở giây 0
-        # thì app chưa kịp mở xong màn cuộc gọi).
-        delay = float(self.cfg.get("offer_delay_seconds", 5))
-        wait = delay - (time.perf_counter() - getattr(self, "_t_accept", time.perf_counter()))
-        if wait > 0:
-            await asyncio.sleep(wait)
         self._t_offer = time.perf_counter()
         await self.room.push("webrtc_offer", {"sdp": self.pc.localDescription.sdp})
         log.info("⏱ gửi offer sau %.1fs kể từ lúc nghe máy", self._t_offer - getattr(self, "_t_accept", self._t_offer))
@@ -326,7 +319,11 @@ class CallSession:
         if not text:
             return
         self._interrupted = False
-        sentences = [text] if self.cfg["tts"].get("provider") == "gemini" else split_for_speech(text)
+        # Gemini TTS không stream: nguyên đoạn dài = chờ lâu. Tách câu để câu đầu (ngắn) ra tiếng sớm,
+        # các câu sau tổng hợp song song trong lúc câu đầu đang phát. Đặt tts.gemini_split=false để về cách cũ.
+        tts_cfg = self.cfg["tts"]
+        one_chunk = tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", True)
+        sentences = [text] if one_chunk else split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
