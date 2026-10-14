@@ -102,16 +102,25 @@ class UtteranceDetector:
     """
     VAD năng lượng + noise floor thích nghi. Nhận từng đoạn int16 16k; khi người
     nói xong (im lặng >= silence_ms) trả về toàn bộ câu (int16 array) — nếu không thì None.
+
+    Sửa lỗi "bot chờ rất lâu sau khi người kia nói xong": trước đây noise floor khởi điểm 200
+    nên nếu nền thực tế ồn hơn ~600 RMS (mic bật AGC, quán ồn...) thì tiếng ồn bị coi là tiếng nói
+    mãi mãi, không bao giờ đủ im lặng để chốt câu -> chờ tới max_utt_s. Giờ:
+      - 0,5s đầu đo noise floor thật rồi mới chạy VAD (các frame đó được phát lại, không mất tiếng).
+      - Nếu vẫn bị kẹt (chốt vì quá dài chứ không phải vì im lặng) thì tự nâng noise floor.
+      - last_info ghi lại vì sao chốt câu để log chẩn đoán.
     """
 
+    WARMUP_FRAMES = 25   # ~0.5s đầu (frame 20ms)
+
     def __init__(self, sample_rate=16000, silence_ms=600, min_speech_ms=300,
-                 max_utt_s=20.0, start_ms=120):
+                 max_utt_s=12.0, start_ms=120):
         self.sr = sample_rate
         self.silence_ms = silence_ms
         self.min_speech_ms = min_speech_ms
         self.max_samples = int(max_utt_s * sample_rate)
         self.start_ms = start_ms
-        self.noise = 200.0              # RMS nền ban đầu
+        self.noise = 200.0              # RMS nền ban đầu (được đo lại sau warm-up)
         self._speech: list[np.ndarray] = []
         self._pre: list[np.ndarray] = []   # đệm đầu câu để không mất phụ âm đầu
         self._in_speech = False
@@ -119,16 +128,44 @@ class UtteranceDetector:
         self._silent_ms = 0.0
         self._speech_ms = 0.0
         self.voiced_run_ms = 0.0        # độ dài đoạn đang nói liên tục (dùng cho barge-in)
+        self._warm: list[np.ndarray] = []
+        self._warm_done = False
+        self._recent_rms: list[float] = []
+        self.last_info: dict = {}
 
     def _threshold(self):
-        return max(self.noise * 3.0, 450.0)
+        return max(self.noise * 2.5, 450.0)
+
+    @staticmethod
+    def _rms(samples):
+        return float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
 
     def feed(self, samples: np.ndarray):
         if samples.size == 0:
             return None
+        if not self._warm_done:
+            self._warm.append(samples)
+            if len(self._warm) < self.WARMUP_FRAMES:
+                return None
+            rmss = [self._rms(s) for s in self._warm]
+            # percentile 25: nếu người kia đang nói một phần thì vẫn lấy mức "im" làm nền
+            self.noise = float(min(max(np.percentile(rmss, 25), 50.0), 1000.0))
+            warm, self._warm, self._warm_done = self._warm, [], True
+            out = None
+            for s in warm:
+                r = self._step(s)
+                if r is not None:
+                    out = r
+            return out
+        return self._step(samples)
+
+    def _step(self, samples: np.ndarray):
         ms = samples.size * 1000.0 / self.sr
-        rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+        rms = self._rms(samples)
         voiced = rms > self._threshold()
+        self._recent_rms.append(rms)
+        if len(self._recent_rms) > 50:
+            self._recent_rms.pop(0)
 
         if voiced:
             self.voiced_run_ms += ms
@@ -157,9 +194,22 @@ class UtteranceDetector:
         else:
             self._silent_ms += ms
         total = sum(s.size for s in self._speech)
-        if self._silent_ms >= self.silence_ms or total >= self.max_samples:
+        by_silence = self._silent_ms >= self.silence_ms
+        if by_silence or total >= self.max_samples:
             utt = np.concatenate(self._speech)
             enough = self._speech_ms >= self.min_speech_ms
+            if not by_silence and self._recent_rms:
+                # Bị kẹt (không thấy im lặng) -> coi mức hiện tại là nền, lần sau chốt nhanh hơn.
+                med = float(np.median(self._recent_rms))
+                if med > self.noise:
+                    self.noise = min(med, 2500.0)
+            self.last_info = {
+                "total_s": total / self.sr,
+                "speech_s": self._speech_ms / 1000.0,
+                "reason": "im lặng" if by_silence else "QUÁ DÀI (không thấy im lặng)",
+                "noise": self.noise,
+                "thr": self._threshold(),
+            }
             self.reset()
             return utt if enough else None
         return None
@@ -172,27 +222,3 @@ class UtteranceDetector:
     @property
     def in_speech(self):
         return self._in_speech
-
-
-def pcm16_to_wav(samples: np.ndarray, sr=16000) -> bytes:
-    bio = io.BytesIO()
-    with wave.open(bio, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        w.writeframes(samples.astype(np.int16).tobytes())
-    return bio.getvalue()
-
-
-def decode_audio_to_pcm48k(data: bytes) -> bytes:
-    """mp3/wav/… (từ TTS) -> PCM s16 mono 48k (bytes) để phát vào BotVoiceTrack."""
-    container = av.open(io.BytesIO(data))
-    rs = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
-    out = bytearray()
-    for frame in container.decode(audio=0):
-        for f in rs.resample(frame):
-            out += f.to_ndarray().tobytes()
-    for f in rs.resample(None):
-        out += f.to_ndarray().tobytes()
-    container.close()
-    return bytes(out)

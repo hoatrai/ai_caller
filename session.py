@@ -275,7 +275,7 @@ class CallSession:
     # ---------------- nghe
     async def _listen(self, track):
         resample = FrameResampler16k()
-        det = UtteranceDetector()
+        det = UtteranceDetector(silence_ms=int(self.cfg.get("vad_silence_ms", 600)))
         recent = collections.deque(maxlen=25)      # ~0.5s gần nhất (mỗi frame 20ms)
         loud_ms = 0.0
         while not self.ended.is_set():
@@ -311,6 +311,10 @@ class CallSession:
             loud_ms = 0.0
             utt = det.feed(samples)
             if utt is not None:
+                i = det.last_info
+                log.info("🎙 nghe xong 1 câu: dài %.1fs (tiếng nói %.1fs), chốt vì: %s, nền=%.0f ngưỡng=%.0f",
+                         i.get("total_s", 0), i.get("speech_s", 0), i.get("reason", "?"),
+                         i.get("noise", 0), i.get("thr", 0))
                 await self._utt_q.put(utt)
 
     # ---------------- nói
