@@ -3,13 +3,11 @@
   STT : Groq Whisper (free tier)  |  hoặc route sẵn có nhau/v1/stt/transcribe của anh (tự host)
   LLM : Groq llama-3.3-70b (free) |  dự phòng Gemini Flash (free) — đều chuẩn OpenAI-compatible
   TTS : edge-tts (giọng Microsoft Edge, miễn phí, không cần key) — vi-VN-HoaiMy / NamMinh
-        hoặc FPT.AI Speech (tts.provider = "fpt", cần FPT_API_KEY, có gói free 100k ký tự/tháng), lỗi thì rơi về edge-tts
 """
 import asyncio
 import logging
 import os
 import re
-import time
 from typing import Optional
 
 import httpx
@@ -58,7 +56,7 @@ QUY TẮC NÓI (rất quan trọng)
 - Nghe gì đáp nấy: trả lời đúng câu anh Hùng vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
 - Dùng từ đơn giản, quen thuộc của người Việt nói chuyện hằng ngày; không dùng từ sách vở, không văn mẫu, không ghép từ lủng củng. Không bịa tên quán, món lạ hay địa danh lạ — cần nhắc chỗ cụ thể thì nói chung chung ('quán nướng gần đó', 'khu quận mình').
 - TUYỆT ĐỐI không đọc lại hay trích nguyên văn lời anh Hùng. Nếu lời anh khó hiểu thì chỉ nói ngắn 'dạ anh nói lại giúp em nghen?'.
-- Chỉ viết đúng lời nói, KHÔNG thêm nhãn ở đầu như 'A:', 'Em:', 'Ngọc:'. Không mở đầu bằng 'Ừ' (đang nói với người lớn hơn). Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
+- Chỉ viết đúng lời nói, KHÔNG thêm nhãn ở đầu như 'A:', 'Em:', 'Ngọc:'. Không mở đầu bằng 'Ừ' (đang nói với người lớn hơn). Câu đầu tiên phải mở lời tự nhiên kiểu 'Alo anh Hùng ơi, em nè' (người gọi là em, người nghe là anh; TUYỆT ĐỐI không viết 'Em ơi anh Hùng'). Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
 - Không nhắc tới việc 'test app' hay 'thử app'. Chuyện riêng chỉ để kể khi hợp ngữ cảnh, không đọc lại nguyên văn.
 - Không bịa số điện thoại, địa chỉ cụ thể, tiền bạc chính xác. Nếu không biết thì nói 'để em coi lại'.
 - Nếu lời anh Hùng có tên đường/địa danh/con số nghe lạ hoặc vô nghĩa (có thể do nhận giọng sai), ĐỪNG đoán và đừng nhắc lại cụm lạ đó; hãy hỏi lại ngắn gọn 'anh nói lại tên chỗ đó giúp em nghen?'.
@@ -119,9 +117,6 @@ class Brain:
         self.cfg = cfg
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
         self._llm_fail = 0
-        self._fpt_fail = 0
-        self._fpt_off_until = 0.0
-        self._fpt_sem = asyncio.Semaphore(1)      # gói free của FPT giới hạn request đồng thời -> gọi lần lượt
 
     async def aclose(self):
         await self.http.aclose()
@@ -214,75 +209,10 @@ class Brain:
 
     # ------------------------------------------------------------------ TTS
     async def synth(self, text: str, gender: str, rate: str = "", region: str = "") -> bytes:
-        """text -> PCM s16 mono 48k. Trả b'' nếu lỗi.
-        tts.provider = "edge" (mặc định, miễn phí) | "fpt" (FPT.AI, cần FPT_API_KEY; lỗi/timeout -> tự rơi về edge-tts)."""
+        """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (region: dành cho việc chọn giọng theo miền sau này)"""
         text = clean_for_speech(text)
         if not text:
             return b""
-        tts = self.cfg["tts"]
-        if tts.get("provider", "edge") == "fpt" and os.getenv("FPT_API_KEY") and len(text) >= 3:
-            if time.monotonic() >= self._fpt_off_until:
-                pcm = await self._synth_fpt(text, gender, rate, region)
-                if pcm:
-                    self._fpt_fail = 0
-                    return pcm
-                self._fpt_fail += 1
-                if self._fpt_fail >= 3:     # lỗi liên tiếp -> nghỉ FPT 2 phút, dùng edge-tts cho đỡ trễ
-                    self._fpt_off_until = time.monotonic() + 120
-                    self._fpt_fail = 0
-                    log.warning("FPT TTS lỗi liên tiếp -> tạm dùng edge-tts 2 phút")
-        return await self._synth_edge(text, gender, rate)
-
-    @staticmethod
-    def _fpt_speed(rate: str, default: str) -> str:
-        """'+12%' (kiểu edge-tts) -> speed FPT (-3..+3)."""
-        m = re.match(r"^\s*([+-]?\d+)\s*%", rate or "")
-        if not m:
-            return default
-        pct = int(m.group(1))
-        return "1" if pct >= 10 else ("-1" if pct <= -2 else "0")
-
-    def _fpt_voice(self, gender: str, region: str) -> str:
-        f = self.cfg["tts"].get("fpt", {})
-        north = "Bắc" in (region or "")
-        key = f"voice_{'female' if gender == 'female' else 'male'}_{'north' if north else 'south'}"
-        defaults = {"voice_female_south": "lannhi", "voice_female_north": "banmai",
-                    "voice_male_south": "giahuy", "voice_male_north": "leminh"}   # FPT chưa có giọng nam miền Nam
-        return f.get(key) or defaults[key]
-
-    async def _synth_fpt(self, text: str, gender: str, rate: str, region: str) -> bytes:
-        f = self.cfg["tts"].get("fpt", {})
-        headers = {"api_key": os.environ["FPT_API_KEY"], "voice": self._fpt_voice(gender, region),
-                   "speed": self._fpt_speed(rate, str(f.get("speed", "0"))), "format": "mp3",
-                   "Cache-Control": "no-cache"}
-        deadline = time.monotonic() + float(f.get("max_wait_seconds", 8))
-        try:
-            async with self._fpt_sem:
-                for attempt in range(3):
-                    r = await self.http.post("https://api.fpt.ai/hmi/tts/v5", headers=headers,
-                                             content=text.encode("utf-8"), timeout=10.0)
-                    if r.status_code == 429 and attempt < 2 and time.monotonic() < deadline:
-                        await asyncio.sleep(0.8 * (attempt + 1))     # bị giới hạn tốc độ -> chờ rồi thử lại
-                        continue
-                    break
-            r.raise_for_status()
-            j = r.json()
-            url = j.get("async")
-            if j.get("error", 0) != 0 or not url:
-                raise RuntimeError(f"FPT trả lỗi: {str(j)[:200]}")
-            # File âm thanh được tạo bất đồng bộ -> thử tải đến khi có (hoặc hết thời gian chờ).
-            while time.monotonic() < deadline:
-                a = await self.http.get(url, timeout=10.0)
-                if a.status_code == 200 and len(a.content) > 1000:
-                    return await asyncio.get_running_loop().run_in_executor(
-                        None, decode_audio_to_pcm48k, a.content)
-                await asyncio.sleep(0.25)
-            raise TimeoutError("FPT chưa tạo xong file âm thanh")
-        except Exception as e:
-            log.warning("FPT TTS lỗi: %s -> dùng edge-tts", e)
-            return b""
-
-    async def _synth_edge(self, text: str, gender: str, rate: str = "") -> bytes:
         import edge_tts
         tts = self.cfg["tts"]
         voice = tts["voice_female"] if gender == "female" else tts["voice_male"]

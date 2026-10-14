@@ -22,7 +22,7 @@ Server Phoenix tự gửi FCM/CallKit làm máy adminroot đổ chuông như cu�
 |---|---|---|
 | LLM | **Groq** `openai/gpt-oss-120b` | key free tại console.groq.com. Dự phòng tự động: **Gemini** `gemini-2.0-flash` (aistudio.google.com) |
 | STT | **Groq** `whisper-large-v3-turbo` | nếu không có key Groq → tự dùng route sẵn có `nhau/v1/stt/transcribe` (stt-service anh tự host) |
-| TTS | **edge-tts** (mặc định) hoặc **FPT.AI** | edge-tts: `vi-VN-HoaiMyNeural` / `vi-VN-NamMinhNeural`, không cần key. FPT.AI (tự nhiên hơn): đặt `"tts": {"provider": "fpt"}` + `FPT_API_KEY` trong `.env`; giọng theo miền (nữ Nam `lannhi`, nữ Bắc `banmai`, nam Bắc `leminh`, nam dùng `giahuy` vì chưa có giọng nam miền Nam); lỗi/timeout tự rơi về edge-tts |
+| TTS | **edge-tts** | giọng `vi-VN-HoaiMyNeural` (nữ) / `vi-VN-NamMinhNeural` (nam), không cần key |
 
 Mỗi cuộc ~1 lần STT + 1 lần LLM mỗi lượt nói → nằm thoải mái trong hạn mức free khi gọi vài phút/lần.
 Chỉ cần **1 key Groq** là chạy được đủ cả STT + LLM.
@@ -87,7 +87,7 @@ git init
 git branch -M main
 git remote add origin https://github.com/hoatrai/ai_caller.git
 git add .
-git commit -m "ai_caller: anh Hùng, nói tự nhiên hơn, thêm TTS FPT.AI"
+git commit -m "ai_caller: anh Hùng, nói tự nhiên hơn, nói tự nhiên hơn"
 git push -u origin main
 ```
 Các lần sau chỉ cần: `git add . && git commit -m "..." && git push`.
@@ -96,8 +96,8 @@ Các lần sau chỉ cần: `git add . && git commit -m "..." && git push`.
 ```bash
 cd /root && git clone https://github.com/hoatrai/ai_caller.git && cd ai_caller
 python3 -m venv venv && venv/bin/pip install -r requirements.txt
-cp .env.example .env            # điền GROQ_API_KEY, FPT_API_KEY (nếu dùng FPT)
-cp config.example.json config.json   # chỉnh admin_user_id, "tts": {"provider": "fpt"} nếu muốn
+cp .env.example .env            # điền GROQ_API_KEY (và/hoặc GEMINI_API_KEY)
+cp config.example.json config.json   # chỉnh admin_user_id
 cp nhau-ai-caller.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now nhau-ai-caller
 ```
 Các lần cập nhật sau: `cd /root/ai_caller && bash deploy.sh` (git pull + cài thư viện + restart bot).

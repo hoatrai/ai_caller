@@ -5,7 +5,6 @@ Một cuộc gọi thoại: bot (user test) -> adminroot, qua đúng giao thức
   -> nói chuyện: nghe (VAD) -> STT -> LLM -> TTS -> phát lại qua track audio.
 """
 import asyncio
-import os
 import collections
 import logging
 import random
@@ -83,9 +82,6 @@ async def resolve_admin_id(cfg: dict, token: str) -> int:
 
 
 # ---------------------------------------------------------------- Call session
-
-def cfg_tts_fpt(cfg: dict) -> bool:
-    return cfg.get("tts", {}).get("provider", "edge") == "fpt" and bool(os.getenv("FPT_API_KEY"))
 
 
 class CallSession:
@@ -292,10 +288,7 @@ class CallSession:
         if not text:
             return
         self._interrupted = False
-        if cfg_tts_fpt(self.cfg):      # FPT free giới hạn số request -> gộp thành ít đoạn hơn
-            sentences = split_for_speech(text, first_max=16, max_words=32)
-        else:
-            sentences = split_for_speech(text)
+        sentences = split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region)) for s in sentences]
