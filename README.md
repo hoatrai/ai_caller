@@ -38,7 +38,8 @@ cp config.example.json config.json
 Trong `config.json` chỉ cần chỉnh:
 - `admin_user_id`: ID WordPress của adminroot (nếu để 0, bot sẽ thử tự tra qua `wp/v2/users?slug=adminroot`).
 - `accounts_file`: mặc định đọc luôn danh sách `accounts` trong `../simulate-test/config.json` (tự loại adminroot).
-  Có thể thêm `"gender": "female"|"male"` cho từng account để cố định giọng đọc.
+  Có thể thêm `"gender": "female"|"male"` cho từng account để cố định giọng đọc (chắc chắn nhất; không có thì bot đoán theo tên, log in rõ lý do).
+- Giọng đọc tự nhiên hơn: đặt `"tts": {"provider": "gemini"}` (dùng GEMINI_API_KEY, lỗi thì tự lùi về edge-tts; free tier có hạn mức nên nhớ theo dõi).
 - `interval_min_seconds` / `interval_max_seconds`: khoảng cách giữa các cuộc gọi.
 - `quiet_hours`: giờ không gọi (mặc định 00:00–07:00 giờ VN).
 

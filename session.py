@@ -17,8 +17,8 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
-from brain import (HANGUP_TAG, Brain, build_system_prompt, clean_for_speech, split_for_speech,
-                   split_sentences, strip_farewell)
+from brain import (HANGUP_TAG, Brain, build_system_prompt, clean_for_speech, humanize_reply,
+                   is_farewell, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
 from persona import Persona
 from signaling import PhoenixRoom
@@ -41,6 +41,7 @@ async def login_bot(cfg: dict, account: dict) -> dict:
         user_id = data.get("user_id") or data.get("id") or (data.get("data") or {}).get("user_id")
         name = data.get("user_display_name") or data.get("display_name") or ""
         avatar = ""
+        prof_gender = ""
         hdr = {"Authorization": f"Bearer {token}"}
         # Avatar/tên: dùng ĐÚNG route app Flutter đang dùng (spiritwebs/v1/me -> avatar_url,
         # xem fetchMeSafe trong app_globals.dart), không dùng gravatar mặc định của WP.
@@ -52,6 +53,7 @@ async def login_bot(cfg: dict, account: dict) -> dict:
                 avatar = str(me.get("avatar_url") or "")
                 user_id = user_id or me.get("id") or me.get("user_id")
                 name = me.get("display_name") or me.get("name") or me.get("username") or name
+                prof_gender = me.get("gender") or me.get("sex") or ""
         except Exception as e:
             log.debug("spiritwebs/v1/me lỗi: %s", e)
         if not user_id or not name:
@@ -66,7 +68,7 @@ async def login_bot(cfg: dict, account: dict) -> dict:
         raise RuntimeError(f"không suy ra được user_id cho {account['username']}")
     return {"username": account["username"], "token": token, "user_id": int(user_id),
             "display_name": name or account["username"], "avatar": avatar,
-            "gender": account.get("gender")}
+            "gender": account.get("gender") or prof_gender or None}
 
 
 async def resolve_admin_id(cfg: dict, token: str) -> int:
@@ -288,7 +290,7 @@ class CallSession:
         if not text:
             return
         self._interrupted = False
-        sentences = split_for_speech(text)
+        sentences = [text] if self.cfg["tts"].get("provider") == "gemini" else split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
@@ -354,7 +356,11 @@ class CallSession:
                 log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
                 hangup = False
                 suppressed = True
-            spoken = clean_for_speech(reply)
+            spoken = humanize_reply(clean_for_speech(reply))
+            if hangup and not is_farewell(spoken):
+                # Chỉ cúp khi câu thật sự là lời chào tạm biệt, không phải câu hỏi (tránh cúp ngang lúc đang hỏi anh).
+                log.info("Bỏ thẻ cúp máy: câu không phải lời chào kết thúc (%r)", spoken[-40:])
+                hangup = False
             if suppressed:
                 spoken = strip_farewell(spoken)
             history.append({"role": "assistant", "content": spoken})
@@ -363,6 +369,7 @@ class CallSession:
             await self.say(spoken)
             if hangup:
                 reason = "bot_hangup_tag"
+                await asyncio.sleep(1.2)      # chờ đuôi lời chào kịp tới điện thoại rồi mới cúp, khỏi cụt chữ
                 break
             if len(history) > 24:      # giữ ngữ cảnh gọn cho free-tier
                 history = history[-24:]

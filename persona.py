@@ -1,6 +1,7 @@
 """Tạo 'nhân vật' cho mỗi cuộc gọi: tên, giọng, tính cách, lý do gọi — ngẫu nhiên nhưng hợp lý."""
 import hashlib
 import random
+import unicodedata
 from dataclasses import dataclass
 
 # (mục tiêu cuộc gọi, câu gợi ý mở đầu — LLM tự diễn đạt lại, không đọc nguyên văn)
@@ -63,12 +64,100 @@ NAMES_F = ["Linh", "Ngọc", "Hương", "Mai", "Trang", "Thu", "Hoa", "Nhung", "
 NAMES_M = ["Hùng", "Nam", "Minh", "Tuấn", "Long", "Đức", "Khoa", "Huy", "Đạt", "Phong", "Quang", "Sơn",
            "Tài", "Trung", "Bình", "Thanh", "Bảo", "Hiếu", "Kiên", "Toàn", "Vinh", "Dũng"]
 
-FEMALE_HINTS = ("anh", "linh", "ngoc", "ngọc", "huong", "hương", "lan", "mai", "trang", "thu", "hoa",
-                "nhung", "yen", "yến", "my", "vy", "thao", "thảo", "phuong", "phương", "han", "hân",
-                "ngan", "ngân", "trinh", "quynh", "quỳnh", "diep", "diệp", "nga", "uyen", "uyên", "chi")
-MALE_HINTS = ("hung", "hùng", "nam", "minh", "tuan", "tuấn", "long", "duc", "đức", "khoa", "huy", "dat",
-              "đạt", "phong", "quang", "son", "sơn", "tai", "tài", "trung", "binh", "bình", "thanh",
-              "bao", "bảo", "hieu", "hiếu", "kien", "kiên", "toan", "toàn", "vinh", "dung", "dũng")
+def _fold(s: str) -> str:
+    """Bỏ dấu + hạ chữ thường: 'Hoàng Đức' -> 'hoang duc'."""
+    s = unicodedata.normalize("NFD", (s or "").lower().replace("đ", "d"))
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+
+# Điểm: 3 = chắc chắn, 1 = nhập nhằng (tên dùng cho cả hai giới). Cố ý KHÔNG có 'anh' (Tuấn Anh nam, Ngọc Anh nữ).
+_F = {"linh": 2, "ngoc": 3, "huong": 3, "lan": 3, "mai": 3, "trang": 3, "thu": 3, "thuy": 3, "hoa": 3,
+      "nhung": 3, "yen": 3, "my": 3, "vy": 3, "thao": 3, "phuong": 2, "han": 3, "ngan": 3, "trinh": 3,
+      "quynh": 3, "diep": 3, "nga": 3, "uyen": 3, "chi": 3, "kim": 1, "giang": 2, "ha": 2, "hanh": 3,
+      "oanh": 3, "tram": 3, "nhi": 3, "tien": 2, "xuan": 1, "lien": 3, "loan": 3, "huyen": 3,
+      "ly": 2, "hang": 3, "nhu": 3, "tuyen": 2, "thuong": 2}
+_M = {"hung": 3, "nam": 3, "minh": 1, "tuan": 3, "long": 3, "duc": 3, "khoa": 3, "huy": 3, "dat": 3,
+      "phong": 3, "quang": 3, "son": 3, "tai": 3, "trung": 3, "binh": 2, "thanh": 1, "bao": 2, "hieu": 3,
+      "kien": 3, "toan": 3, "vinh": 3, "dung": 1, "cuong": 3, "dong": 3, "hai": 2, "hoang": 1, "khanh": 1,
+      "lam": 2, "loc": 3, "nghia": 3, "nhan": 3, "phuc": 3, "tam": 1, "thang": 3, "thien": 3, "tin": 3,
+      "tu": 2, "viet": 3, "tung": 3, "dai": 3, "dan": 3}
+_SURNAMES = ("nguyen", "tran", "le", "pham", "hoang", "huynh", "phan", "vu", "vo", "dang", "bui", "do", "ho",
+             "ngo", "duong", "ly", "truong", "dinh", "doan", "luong", "trinh")
+_MID_F, _MID_M = {"thi"}, {"van", "duc", "huu", "quoc", "gia"}
+
+
+def _score_word(w: str, weight: float = 1.0) -> tuple[float, float]:
+    return _F.get(w, 0) * weight, _M.get(w, 0) * weight
+
+
+def _score_compact(chunk: str) -> tuple[float, float]:
+    """Username viết liền ('namnguyen', 'hoangnam', 'trangkim'): bóc họ ở đầu/cuối rồi so tên NGUYÊN TỪ.
+    Không khớp chuỗi con tuỳ tiện nữa (trước đây 'hoang' dính 'hoa', 'thanh' dính 'anh' -> nam bị đoán thành nữ)."""
+    if chunk in _F or chunk in _M:
+        return _score_word(chunk, 1.0)
+    for s in sorted(_SURNAMES, key=len, reverse=True):
+        if chunk.startswith(s) and len(chunk) > len(s):
+            rest = chunk[len(s):]
+            if rest in _F or rest in _M:
+                return _score_word(rest, 1.0)
+        if chunk.endswith(s) and len(chunk) > len(s):
+            rest = chunk[:-len(s)]
+            if rest in _F or rest in _M:
+                return _score_word(rest, 1.0)
+    # Tên dính ở đầu/cuối username: ('trangkim', 'thuygiang', 'nhatnam'). Tên >=4 chữ khớp ở đầu hoặc cuối;
+    # tên 3 chữ chỉ tính khi nằm CUỐI (tên gọi thường đứng sau). Mỗi đầu lấy khớp dài nhất, điểm nửa.
+    f = m = 0.0
+    for edge in ("start", "end"):
+        best = (0.0, 0.0, 0)
+        for table, idx in ((_F, 0), (_M, 1)):
+            for name, sc in table.items():
+                if len(name) < 3 or len(name) == len(chunk):
+                    continue
+                if len(name) == 3 and (edge == "start" or len(chunk) - 3 < 3):
+                    continue
+                hit = chunk.startswith(name) if edge == "start" else chunk.endswith(name)
+                if hit and len(name) > best[2]:
+                    best = (sc * 0.5 if idx == 0 else 0.0, sc * 0.5 if idx == 1 else 0.0, len(name))
+        f, m = f + best[0], m + best[1]
+    return f, m
+
+
+def _norm_gender(v) -> str | None:
+    s = _fold(str(v or "")).strip()
+    if s in ("female", "f", "nu", "woman", "girl", "2"):
+        return "female"
+    if s in ("male", "m", "nam", "man", "boy", "1"):
+        return "male"
+    return None
+
+
+def detect_gender(username: str, display_name: str, forced=None) -> tuple[str, str]:
+    """Trả (gender, lý do). Ưu tiên: forced -> tên hiển thị (từ cuối = tên gọi) -> username -> hash cố định."""
+    g = _norm_gender(forced)
+    if g:
+        return g, "cấu hình/hồ sơ"
+    f = m = 0.0
+    words = _fold("".join(c if c.isalpha() or c == " " else " " for c in (display_name or ""))).split()
+    if words:
+        for w in words[:-1]:
+            if w in _MID_F:
+                f += 4
+            elif w in _MID_M:
+                m += 2
+        sf, sm = _score_word(words[-1], 2.0)          # tên gọi nằm ở cuối
+        f, m = f + sf, m + sm
+        if len(words) == 1:
+            sf, sm = _score_compact(words[0])
+            f, m = f + sf, m + sm
+    for chunk in _fold(username or "").replace("_", " ").replace(".", " ").replace("-", " ").split():
+        chunk = "".join(c for c in chunk if c.isalpha())
+        if chunk:
+            sf, sm = _score_compact(chunk)
+            f, m = f + sf * 0.7, m + sm * 0.7
+    if f != m and max(f, m) >= 1:
+        return ("female" if f > m else "male"), f"theo tên (nữ {f:.1f} / nam {m:.1f})"
+    h = int(hashlib.md5((username or "x").encode()).hexdigest(), 16)
+    return ("female" if h % 2 else "male"), "KHÔNG đoán được từ tên -> chọn ngẫu nhiên cố định (nên thêm gender vào account)"
 
 
 @dataclass
@@ -88,6 +177,7 @@ class Persona:
     tts_pitch: str = ""      # cao độ giọng riêng của từng user (cố định theo username), vd "+8Hz"
     charm: str = ""
     facts: str = ""
+    gender_why: str = ""
 
     @property
     def call_name(self) -> str:
@@ -98,16 +188,8 @@ class Persona:
         return parts[-1].capitalize() if parts else "em"
 
 
-def guess_gender(username: str, display_name: str, forced: str | None = None) -> str:
-    if forced in ("female", "male"):
-        return forced
-    name = f"{display_name} {username}".lower()
-    f = sum(h in name for h in FEMALE_HINTS)
-    m = sum(h in name for h in MALE_HINTS)
-    if f != m:
-        return "female" if f > m else "male"
-    # ổn định theo username (cùng 1 user luôn cùng giọng)
-    return "female" if int(hashlib.md5(username.encode()).hexdigest(), 16) % 2 else "male"
+def guess_gender(username: str, display_name: str, forced=None) -> str:
+    return detect_gender(username, display_name, forced)[0]
 
 
 def make_persona(account: dict, display_name: str, rng: random.Random | None = None,
@@ -120,7 +202,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     region, style = rng.choice(REGIONS)
     shown = display_name or username
     words = [w for w in "".join(c if c.isalpha() or c == " " else " " for c in shown).split() if w]
-    gender = guess_gender(username, shown if display_name else "", account.get("gender"))
+    gender, gender_why = detect_gender(username, display_name or "", account.get("gender"))
     nick = ""
     mood = rng.choice(MOODS)
     # Mỗi user 1 "chất giọng" riêng cố định theo username (cao độ + tốc độ nền), tâm trạng mỗi cuộc chỉ nhích nhẹ tốc độ.
@@ -144,6 +226,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         username=username,
         display_name=display_name or username,
         gender=gender,
+        gender_why=gender_why,
         nick=nick,
         mood=mood,
         tts_rate=tts_rate,

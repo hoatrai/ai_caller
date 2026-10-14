@@ -35,9 +35,9 @@ DEFAULTS = {
         "temperature": 0.7,
         "max_tokens": 220,
     },
-    "stt": {"provider": "auto", "groq_model": "whisper-large-v3-turbo", "language": "vi",
-            "prompt": "Cuộc gọi điện thoại tiếng Việt giữa hai người quen về app Kèo: rủ đi nhậu, karaoke, quán nướng, slot, kèo tối nay, đường 3 tháng 2, quận 1, quận 7, Bình Thạnh, Thủ Đức, mấy giờ."},
-    "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%", "pitch": "+0Hz"},
+    "stt": {"provider": "auto", "groq_model": "whisper-large-v3", "language": "vi",
+            "prompt": "Cuộc gọi điện thoại tiếng Việt giữa hai người quen. Alô, anh khỏe không? Dạo này anh sao rồi? Em gọi hỏi anh tí, tối nay anh rảnh không, đi nhậu quán nướng hen. Ừ được, vậy hẹn tám giờ tối nha. Kèo, slot, karaoke, quận 1, quận 7, Bình Thạnh, Thủ Đức."},
+    "tts": {"provider": "edge", "voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%", "pitch": "+0Hz"},
     "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}],
 }
 

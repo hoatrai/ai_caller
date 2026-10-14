@@ -85,7 +85,7 @@ async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=
     admin_id = await resolve_admin_id(cfg, bot["token"])
     persona = make_persona({"username": bot["username"], "gender": bot.get("gender")},
                            bot["display_name"], scenario_tag=force_scenario)
-    log.info("Chọn %s (%s, %s) — %s", bot["username"], bot["display_name"], persona.gender, persona.scenario_tag)
+    log.info("Chọn %s (%s, %s — %s) — %s", bot["username"], bot["display_name"], persona.gender, persona.gender_why, persona.scenario_tag)
     if dry:
         log.info("[dry-run] sẽ gọi adminroot (id=%s). Mục đích: %s", admin_id, persona.goal)
         return

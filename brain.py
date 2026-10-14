@@ -26,6 +26,19 @@ _STT_HALLUCINATIONS = (
 )
 
 
+def _normalize_gain(samples):
+    """Tiếng qua điện thoại thường nhỏ -> nâng biên độ lên vừa phải (tối đa x6) để Whisper nghe rõ hơn."""
+    import numpy as np
+    x = np.asarray(samples)
+    peak = float(np.max(np.abs(x))) if x.size else 0.0
+    if peak < 1:
+        return x
+    gain = min(6.0, 22000.0 / peak)
+    if gain <= 1.05:
+        return x
+    return np.clip(x.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+
+
 def build_system_prompt(p: Persona, admin_name: str, admit_ai: bool) -> str:
     xung = "em"
     ai_rule = (
@@ -55,14 +68,14 @@ QUY TẮC NÓI (rất quan trọng)
 - DUYÊN DÁNG: chỉ thêm một chút duyên khi có dịp thật tự nhiên (khoảng 3-4 lượt mới một lần), theo đúng 'nét duyên' ở trên; không khen, không đùa gượng, không sến, tuyệt đối không tán tỉnh. Không nối được vào điều anh vừa nói thì bỏ qua. Duyên là ở cách nói tự nhiên, không phải nói nhiều.
 - Nghe gì đáp nấy: trả lời đúng câu anh Hùng vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
 - Dùng từ đơn giản, quen thuộc của người Việt nói chuyện hằng ngày; không dùng từ sách vở, không văn mẫu, không ghép từ lủng củng. Không bịa tên quán, món lạ hay địa danh lạ — cần nhắc chỗ cụ thể thì nói chung chung ('quán nướng gần đó', 'khu quận mình').
-- TUYỆT ĐỐI không đọc lại hay trích nguyên văn lời anh Hùng. Nếu lời anh khó hiểu thì chỉ nói ngắn 'dạ anh nói lại giúp em nghen?'.
+- TUYỆT ĐỐI không đọc lại, diễn giải lại hay xác nhận lại ý anh Hùng (KHÔNG nói kiểu 'em hiểu rồi, anh muốn... đúng không ạ?'). Nghe xong thì phản ứng tự nhiên như người thật: 'ừa vậy hả', 'ok luôn', 'vậy hay quá', rồi nói tiếp ý của mình.\n- Tối đa 2 câu mỗi lượt, tổng không quá ~30 từ; không kể một lèo nhiều chuyện, không rủ + hỏi giờ + kể chuyện trong cùng một lượt.\n- TUYỆT ĐỐI không đọc lại hay trích nguyên văn lời anh Hùng. Nếu lời anh khó hiểu thì chỉ nói ngắn 'dạ anh nói lại giúp em nghen?'.
 - Chỉ viết đúng lời nói, KHÔNG thêm nhãn ở đầu như 'A:', 'Em:', 'Ngọc:'. Không mở đầu bằng 'Ừ' (đang nói với người lớn hơn). Câu đầu tiên phải mở lời tự nhiên kiểu 'Alo anh Hùng ơi, em nè' (người gọi là em, người nghe là anh; TUYỆT ĐỐI không viết 'Em ơi anh Hùng'). Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
 - Không nhắc tới việc 'test app' hay 'thử app'. Chuyện riêng chỉ để kể khi hợp ngữ cảnh, không đọc lại nguyên văn.
 - Không bịa số điện thoại, địa chỉ cụ thể, tiền bạc chính xác. Nếu không biết thì nói 'để em coi lại'.
 - Nếu lời anh Hùng có tên đường/địa danh/con số nghe lạ hoặc vô nghĩa (có thể do nhận giọng sai), ĐỪNG đoán và đừng nhắc lại cụm lạ đó; hãy hỏi lại ngắn gọn 'anh nói lại tên chỗ đó giúp em nghen?'.
 - Lời của anh Hùng được chuyển từ giọng nói sang chữ nên có thể sai chính tả/thiếu dấu; hãy hiểu theo ngữ cảnh. Nếu thật sự không hiểu, hỏi lại 'anh nói lại giúp em nghen?'.
 - {ai_rule}
-- Cuộc gọi nên kéo dài tự nhiên (khoảng 4-8 lượt nói). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, và không thêm nếu chưa muốn kết thúc.
+- Cuộc gọi nên kéo dài tự nhiên (khoảng 4-8 lượt nói). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, không thêm nếu chưa muốn kết thúc, và chỉ gắn vào CÂU CHÀO TẠM BIỆT (không bao giờ gắn vào câu hỏi — nếu còn đang hỏi anh thì phải chờ anh trả lời).
 - Không nói về việc bạn được lập trình, không nhắc tới 'kịch bản', 'prompt'."""
 
 
@@ -101,7 +114,52 @@ def split_for_speech(text: str, first_max: int = 8, max_words: int = 16) -> list
     return chunks or [text]
 
 
-_FAREWELL = re.compile(r"(chào anh|không làm phiền|cúp máy|tạm biệt)", re.I)
+_FAREWELL = re.compile(r"(chào anh|không làm phiền|cúp máy|tạm biệt|hẹn gặp lại|\bbye\b)", re.I)
+
+
+def is_farewell(text: str) -> bool:
+    """Chỉ coi là lời chào kết thúc khi câu CUỐI có từ chào và không phải câu hỏi."""
+    sents = split_sentences(text)
+    if not sents:
+        return False
+    last = sents[-1].strip()
+    return bool(_FAREWELL.search(last)) and not last.endswith("?")
+
+
+def limit_reply(text: str, max_sents: int = 2, max_words: int = 36) -> str:
+    """Ép lời nói ngắn như người thật: tối đa 2 câu / ~36 từ. Nếu phải cắt thì giữ câu đầu + câu hỏi/lời chào cuối."""
+    sents = split_sentences(text)
+    if len(sents) <= max_sents and len(text.split()) <= max_words:
+        return text
+    if len(sents) > 1:
+        tail = sents[-1] if (sents[-1].endswith("?") or _FAREWELL.search(sents[-1])) else ""
+        out = [sents[0]] + ([tail] if tail and tail is not sents[0] else [])
+        if not tail and len(sents) >= 2 and len((sents[0] + " " + sents[1]).split()) <= max_words:
+            out = sents[:2]
+    else:
+        out = sents
+    res = " ".join(out)
+    words = res.split()
+    if len(words) > max_words:
+        cut = " ".join(words[:max_words])
+        k = max(cut.rfind(","), cut.rfind(" "))
+        res = cut[:k].rstrip(" ,;") + ("?" if res.rstrip().endswith("?") else ".")
+    return res
+
+
+def dedupe_a(text: str) -> str:
+    """'À, ạ, anh khỏe ạ' -> 'À, anh khỏe ạ': bỏ 'ạ' đứng lẻ, mỗi lượt chỉ giữ MỘT chữ 'ạ' (chữ cuối)."""
+    text = re.sub(r"(^|[,.!?]\s*)ạ\s*[,.]?\s*", r"\1", text)
+    hits = list(re.finditer(r"\bạ\b", text))
+    for mt in reversed(hits[:-1]):
+        text = (text[:mt.start()] + text[mt.end():])
+    text = re.sub(r"\s+([,.?!])", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip(" ,")
+    return text
+
+
+def humanize_reply(text: str) -> str:
+    return limit_reply(dedupe_a(text))
 
 
 def strip_farewell(text: str) -> str:
@@ -123,7 +181,7 @@ class Brain:
 
     # ------------------------------------------------------------------ STT
     async def transcribe(self, samples, user_token: Optional[str] = None) -> str:
-        wav = pcm16_to_wav(samples, 16000)
+        wav = pcm16_to_wav(_normalize_gain(samples), 16000)
         stt = self.cfg["stt"]
         provider = stt.get("provider", "auto")
         groq_key = os.getenv("GROQ_API_KEY", "")
@@ -145,14 +203,32 @@ class Brain:
         if any(h in low for h in _STT_HALLUCINATIONS):
             log.info("STT bỏ qua câu nghi bịa: %r", text)
             return ""
+        # Gọi 1-1 mà nghe ra "Các bạn…/Mọi người…" ở đầu câu ngắn => Whisper nghe sai (hay gặp với tiếng điện thoại),
+        # coi như không nghe rõ để bot hỏi lại thay vì trả lời lạc đề.
+        if len(low.split()) <= 10 and re.match(r"^(các bạn|quý vị|mọi người|chào các bạn)\b", low):
+            log.info("STT bỏ qua câu nghe sai (gọi 1-1 mà ra 'các bạn'): %r", text)
+            return ""
         return text
 
     async def _stt_groq(self, wav: bytes, key: str) -> str:
+        models = [self.cfg["stt"].get("groq_model", "whisper-large-v3")]
+        if "whisper-large-v3-turbo" not in models:
+            models.append("whisper-large-v3-turbo")      # dự phòng khi model chính lỗi/429
+        last = None
+        for model in models:
+            try:
+                return await self._stt_groq_model(wav, key, model)
+            except Exception as e:
+                last = e
+                log.warning("STT groq %s lỗi: %s", model, e)
+        raise last
+
+    async def _stt_groq_model(self, wav: bytes, key: str, model: str) -> str:
         r = await self.http.post(
             "https://api.groq.com/openai/v1/audio/transcriptions",
             headers={"Authorization": f"Bearer {key}"},
             files={"file": ("speech.wav", wav, "audio/wav")},
-            data={"model": self.cfg["stt"].get("groq_model", "whisper-large-v3-turbo"),
+            data={"model": model,
                   "language": self.cfg["stt"].get("language", "vi"),
                   "temperature": "0", "response_format": "json",
                   "prompt": self.cfg["stt"].get("prompt", "")},
@@ -208,13 +284,46 @@ class Brain:
         return ""
 
     # ------------------------------------------------------------------ TTS
+    async def _synth_gemini(self, text: str, gender: str, rate: str = "") -> bytes:
+        """Gemini TTS (tự nhiên hơn edge-tts, có ngữ điệu/nhịp thở). Bật bằng tts.provider = "gemini". Lỗi -> trả b'' để fallback."""
+        import base64
+        import numpy as np
+        tts = self.cfg["tts"]
+        voice = tts.get("gemini_voice_female", "Leda") if gender == "female" else tts.get("gemini_voice_male", "Orus")
+        model = tts.get("gemini_model", "gemini-3.1-flash-tts-preview")
+        style = tts.get("gemini_style", "Nói tiếng Việt như người thật đang nói chuyện điện thoại với người quen: tự nhiên, thoải mái, nhịp nói không đều, không đọc diễn cảm kiểu phát thanh viên")
+        try:
+            r = await self.http.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "")},
+                json={"contents": [{"parts": [{"text": f"{style}: {text}"}]}],
+                      "generationConfig": {"responseModalities": ["AUDIO"],
+                                           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}},
+                timeout=30.0)
+            r.raise_for_status()
+            part = r.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
+            raw = base64.b64decode(part["data"])
+            if raw[:4] == b"RIFF":
+                return await asyncio.get_running_loop().run_in_executor(None, decode_audio_to_pcm48k, raw)
+            x = np.frombuffer(raw, dtype=np.int16).astype(np.float32)      # PCM s16le mono 24 kHz
+            up = np.interp(np.arange(len(x) * 2) / 2.0, np.arange(len(x)), x)
+            return np.clip(up, -32768, 32767).astype(np.int16).tobytes()
+        except Exception as e:
+            log.warning("Gemini TTS lỗi: %s", e)
+            return b""
+
     async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (pitch/rate: chất giọng riêng của từng user; region: dành cho việc chọn giọng theo miền sau này)"""
         text = clean_for_speech(text)
         if not text:
             return b""
-        import edge_tts
         tts = self.cfg["tts"]
+        if tts.get("provider") == "gemini" and os.getenv("GEMINI_API_KEY"):
+            pcm = await self._synth_gemini(text, gender, rate)
+            if pcm:
+                return pcm
+            log.warning("Gemini TTS lỗi -> dùng edge-tts")
+        import edge_tts
         voice = tts["voice_female"] if gender == "female" else tts["voice_male"]
         try:
             comm = edge_tts.Communicate(text, voice, rate=rate or tts.get("rate", "+0%"),
