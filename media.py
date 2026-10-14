@@ -222,3 +222,26 @@ class UtteranceDetector:
     @property
     def in_speech(self):
         return self._in_speech
+
+def pcm16_to_wav(samples: np.ndarray, sr=16000) -> bytes:
+    bio = io.BytesIO()
+    with wave.open(bio, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(samples.astype(np.int16).tobytes())
+    return bio.getvalue()
+
+
+def decode_audio_to_pcm48k(data: bytes) -> bytes:
+    """mp3/wav/… (từ TTS) -> PCM s16 mono 48k (bytes) để phát vào BotVoiceTrack."""
+    container = av.open(io.BytesIO(data))
+    rs = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+    out = bytearray()
+    for frame in container.decode(audio=0):
+        for f in rs.resample(frame):
+            out += f.to_ndarray().tobytes()
+    for f in rs.resample(None):
+        out += f.to_ndarray().tobytes()
+    container.close()
+    return bytes(out)
