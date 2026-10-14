@@ -374,23 +374,34 @@ class CallSession:
             if len(history) > 24:      # giữ ngữ cảnh gọn cho free-tier
                 history = history[-24:]
 
-            # chờ adminroot nói
-            utt = await self._next_utterance(cfg["idle_hangup_seconds"])
-            if utt is None:
-                idle += 1
-                if idle >= 2:
-                    reason = "idle"
-                    await self.say("Alô? Chắc anh đang bận, em gọi lại sau nha anh.")
+            # chờ adminroot nói. Tiếng ồn/im lặng bị Whisper "bịa" (đã lọc -> rỗng) thì chờ tiếp, KHÔNG bắt bot
+            # đòi "anh nói lại"; chỉ khi liên tiếp nhiều lần mới hỏi lại.
+            heard, stop, ignored = "", False, 0
+            while True:
+                utt = await self._next_utterance(cfg["idle_hangup_seconds"])
+                if utt is None:
+                    idle += 1
+                    if idle >= 2:
+                        reason = "idle"
+                        await self.say("Alô? Chắc anh đang bận, em gọi lại sau nha anh.")
+                        stop = True
+                    else:
+                        history.append({"role": "user", "content": "(anh Hùng im lặng một lúc)"})
                     break
-                history.append({"role": "user", "content": "(anh Hùng im lặng một lúc)"})
-                continue
-            idle = 0
-            t_stt = time.perf_counter()
-            heard = await self.brain.transcribe(utt, self.bot["token"])
-            log.info("⏱ STT %.1fs", time.perf_counter() - t_stt)
-            if not heard:
-                history.append({"role": "user", "content": "(không nghe rõ anh Hùng nói gì)"})
-                continue
-            log.info("👤 adminroot: %s", heard)
-            history.append({"role": "user", "content": heard})
+                idle = 0
+                t_stt = time.perf_counter()
+                heard = await self.brain.transcribe(utt, self.bot["token"])
+                log.info("⏱ STT %.1fs", time.perf_counter() - t_stt)
+                if heard:
+                    break
+                ignored += 1
+                if ignored >= 3:
+                    history.append({"role": "user", "content": "(không nghe rõ anh Hùng nói gì)"})
+                    break
+                log.info("STT rỗng/nhiễu (%d) -> chờ tiếp, chưa hỏi lại", ignored)
+            if stop:
+                break
+            if heard:
+                log.info("👤 adminroot: %s", heard)
+                history.append({"role": "user", "content": heard})
         log.info("Kết thúc hội thoại. Lý do: %s (ended=%s, end_reason=%s)", reason, self.ended.is_set(), self.end_reason)

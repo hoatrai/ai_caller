@@ -63,7 +63,7 @@ MỤC ĐÍCH CUỘC GỌI: {p.goal}
 QUY TẮC NÓI (rất quan trọng)
 - MỖI LƯỢT nói 1-2 câu NGẮN (~8-25 từ), như người thật nói chuyện điện thoại: phản ứng ngay với điều anh vừa nói, thêm tối đa MỘT ý nhỏ, và không phải lượt nào cũng hỏi lại (hỏi thì chỉ MỘT câu). Đừng hỏi dồn, đừng tự mâu thuẫn. Đây là lời nói, KHÔNG phải văn viết.
 - Nếu anh Hùng chỉ đáp cộc lốc ('ừ', 'ok', 'sao', 'ờ') thì ĐỪNG im hay chốt cuộc gọi: chủ động kể tiếp, đào sâu mục đích gọi, hoặc hỏi ý kiến anh.
-- Nói như bạn bè quen nhau, KHÔNG như nhân viên chăm sóc khách hàng: câu có thể cụt, bỏ chủ ngữ, nói lửng ('thì cũng... tại em tính rủ mấy đứa á'). Hạn chế 'dạ', 'ạ', 'vâng' dày đặc (nhiều nhất 1 lần mỗi lượt, nhiều lượt không cần). Đừng mở đầu lượt nào cũng bằng 'dạ' hay 'ừ anh'. Mỗi lượt đổi cách vào câu (phản ứng, trả lời thẳng, kể một chút...). Thỉnh thoảng mới dùng từ đệm ('ờ', 'à', 'ừm', 'nè', 'á') và 'haha' bằng chữ, đừng lượt nào cũng có.
+- Nói như bạn bè quen nhau, KHÔNG như nhân viên chăm sóc khách hàng: câu có thể cụt, bỏ chủ ngữ, nói lửng ('thì cũng... tại em tính rủ mấy đứa á'). Hạn chế 'dạ', 'ạ', 'vâng' dày đặc (nhiều nhất 1 lần mỗi lượt, nhiều lượt không cần). Đừng mở đầu lượt nào cũng bằng 'dạ' hay 'ừ anh'. Mỗi lượt đổi cách vào câu (phản ứng, trả lời thẳng, kể một chút...). Thỉnh thoảng mới dùng từ đệm ('ờ', 'à', 'ừm', 'nè', 'á') Tuyệt đối KHÔNG viết tiếng cười bằng chữ ('haha', 'hihi', 'hehe', 'kkk', 'hì hì') vì giọng đọc sẽ đọc thành từng chữ nghe rất máy; muốn vui thì thể hiện bằng lời nói.
 - TUYỆT ĐỐI không dùng emoji, markdown, gạch đầu dòng, dấu ngoặc, mô tả hành động kiểu *cười*.
 - DUYÊN DÁNG: chỉ thêm một chút duyên khi có dịp thật tự nhiên (khoảng 3-4 lượt mới một lần), theo đúng 'nét duyên' ở trên; không khen, không đùa gượng, không sến, tuyệt đối không tán tỉnh. Không nối được vào điều anh vừa nói thì bỏ qua. Duyên là ở cách nói tự nhiên, không phải nói nhiều.
 - Nghe gì đáp nấy: trả lời đúng câu anh Hùng vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
@@ -79,10 +79,19 @@ QUY TẮC NÓI (rất quan trọng)
 - Không nói về việc bạn được lập trình, không nhắc tới 'kịch bản', 'prompt'."""
 
 
+_LAUGH = re.compile(r"\b(?:ha(?:ha)+h?|hi(?:hi)+|he(?:he)+|hô(?:hô)+|kk+|hì(?:\s*hì)+|hề(?:\s*hề)+|ha ha(?: ha)*|hi hi(?: hi)*)\b", re.I)
+
+
 def clean_for_speech(text: str) -> str:
     text = text.replace(HANGUP_TAG, "")
     text = re.sub(r"^\s*(?:A|B|Bot|AI|Assistant|User|Em|[A-ZÀ-Ỹ][\wà-ỹ]{1,9})\s*:\s+", "", text)   # nhãn "A:", "Ngọc:" LLM tự thêm
     text = re.sub(r"\*[^*]*\*", "", text)                 # *cười*
+    if _LAUGH.search(text):                              # haha/hihi... TTS đọc thành chữ nghe rất máy
+        text = _LAUGH.sub("", text)
+        text = re.sub(r"\s+([,.!?])", r"\1", text)
+        text = re.sub(r"([,.!?])(?:\s*[,.])+", r"\1", text)
+        text = re.sub(r",\s*([.!?])", r"\1", text)
+        text = re.sub(r"^[\s,.!]+", "", text)
     text = re.sub(r"[\U00010000-\U0010ffff☀-➿]", "", text)   # emoji
     text = re.sub(r"\([^)]*\)", "", text)                  # (đợi anh trả lời)
     text = re.sub(r'[“”"«»]', "", text)

@@ -25,7 +25,7 @@ SCENARIOS = [
 ]
 
 MOODS = [
-    "vui vẻ, nói nhanh, hay cười 'haha'",
+    "vui vẻ, nói nhanh, giọng tươi",
     "hơi ngại ngùng, ngập ngừng nhẹ, lịch sự",
     "mới tan ca nên hơi mệt nhưng thân thiện",
     "hào hứng, hay dùng từ cảm thán như 'trời ơi', 'dữ vậy'",
@@ -51,7 +51,7 @@ RECENT = ["tuần trước vừa đi một kèo hải sản, vui mà xỉn quá 
 # Dùng khi display_name chỉ là username viết liền (vd "thuygiang") -> chọn tên gọi tự nhiên, ổn định theo username.
 # "Nét duyên" riêng của từng nhân vật: thân thiện, tinh tế, lễ phép — không tán tỉnh, không sến.
 CHARMS = [
-    "dí dỏm, hay đùa nhẹ về chính mình (tự trào) rồi cười 'hihi'",
+    "dí dỏm, hay đùa nhẹ về chính mình (tự trào) rồi nói tiếp tự nhiên",
     "ngọt ngào, nói năng nhẹ nhàng, thỉnh thoảng khen khéo anh Hùng một câu chân thành",
     "tinh nghịch, thích trêu nhẹ anh Hùng nhưng luôn lễ phép",
     "hóm hỉnh, hay ví von vui kiểu dân gian ('đông như đi chợ Tết', 'nhanh như chớp')",
@@ -81,6 +81,13 @@ _M = {"hung": 3, "nam": 3, "minh": 1, "tuan": 3, "long": 3, "duc": 3, "khoa": 3,
       "kien": 3, "toan": 3, "vinh": 3, "dung": 1, "cuong": 3, "dong": 3, "hai": 2, "hoang": 1, "khanh": 1,
       "lam": 2, "loc": 3, "nghia": 3, "nhan": 3, "phuc": 3, "tam": 1, "thang": 3, "thien": 3, "tin": 3,
       "tu": 2, "viet": 3, "tung": 3, "dai": 3, "dan": 3}
+# Tên Tây hay dùng làm username/nickname
+_F.update({"linda": 3, "anna": 3, "lisa": 3, "mary": 3, "jenny": 3, "jessica": 3, "emily": 3, "amy": 3, "emma": 3,
+           "sophie": 3, "ruby": 3, "lily": 3, "jolie": 3, "angela": 3, "christina": 3, "kate": 3, "alice": 3,
+           "ella": 3, "mia": 3, "nana": 3, "bella": 3, "candy": 3, "kitty": 3, "sunny": 1})
+_M.update({"vincent": 3, "david": 3, "john": 3, "michael": 3, "kevin": 3, "peter": 3, "tony": 3, "jack": 3,
+           "james": 3, "tom": 3, "leo": 3, "henry": 3, "andy": 3, "steven": 3, "richard": 3, "daniel": 3,
+           "william": 3, "alex": 1, "ken": 3, "ben": 3, "max": 3, "sam": 1, "jason": 3, "justin": 3, "bobby": 3})
 _SURNAMES = ("nguyen", "tran", "le", "pham", "hoang", "huynh", "phan", "vu", "vo", "dang", "bui", "do", "ho",
              "ngo", "duong", "ly", "truong", "dinh", "doan", "luong", "trinh")
 _MID_F, _MID_M = {"thi"}, {"van", "duc", "huu", "quoc", "gia"}
