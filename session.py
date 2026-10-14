@@ -150,9 +150,19 @@ class CallSession:
             log.info("✅ adminroot đã nghe máy -> bắt đầu WebRTC")
             self._t_accept = time.perf_counter()
             await self._start_webrtc()
+            # Chờ nối được HOẶC cuộc gọi bị kết thúc (reject/end từ app) — không ngồi chờ hết 20s vô ích.
+            w_conn = asyncio.create_task(self.connected.wait())
+            w_end = asyncio.create_task(self.ended.wait())
             try:
-                await asyncio.wait_for(self.connected.wait(), 20)
-            except asyncio.TimeoutError:
+                await asyncio.wait({w_conn, w_end}, timeout=20, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for t in (w_conn, w_end):
+                    t.cancel()
+            if not self.connected.is_set():
+                if self.ended.is_set():
+                    outcome = "rejected_after_accept" if "reject" in self.end_reason else "ended_before_connect"
+                    log.info("Cuộc gọi kết thúc ngay sau khi nghe máy (%s)", self.end_reason)
+                    return {"outcome": outcome, "reason": self.end_reason}
                 outcome = "webrtc_failed"
                 await self.room.push("call_end", {})
                 return {"outcome": outcome}
