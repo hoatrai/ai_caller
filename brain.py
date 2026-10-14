@@ -572,7 +572,8 @@ class Brain:
             log.info("VieNeu: %d ký tự -> %.1fs âm thanh, mất %.1fs", len(text), len(x) / 48000.0, took)
             # Chậm 2 câu liên tiếp thì nghỉ VieNeu (câu này vẫn dùng, vì đã tạo xong).
             self._vieneu_slow = self._vieneu_slow + 1 if took > slow_s else 0
-            if self._vieneu_slow >= int(tts.get("vieneu_slow_limit", 2)):
+            slow_limit = int(tts.get("vieneu_slow_limit", 2))
+            if slow_limit > 0 and self._vieneu_slow >= slow_limit:      # 0 = không bao giờ bỏ VieNeu chỉ vì chậm
                 self._vieneu_trip(f"chậm liên tục (>{slow_s:.0f}s/câu)")
             return pcm
 
