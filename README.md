@@ -20,7 +20,7 @@ Server Phoenix tự gửi FCM/CallKit làm máy adminroot đổ chuông như cu�
 ## AI miễn phí — dùng gì?
 | Việc | Dịch vụ (free) | Ghi chú |
 |---|---|---|
-| LLM | **Groq** `llama-3.3-70b-versatile` | key free tại console.groq.com. Dự phòng tự động: **Gemini** `gemini-2.0-flash` (aistudio.google.com) |
+| LLM | **Groq** `openai/gpt-oss-120b` | key free tại console.groq.com. Dự phòng tự động: **Gemini** `gemini-2.0-flash` (aistudio.google.com) |
 | STT | **Groq** `whisper-large-v3-turbo` | nếu không có key Groq → tự dùng route sẵn có `nhau/v1/stt/transcribe` (stt-service anh tự host) |
 | TTS | **edge-tts** | giọng `vi-VN-HoaiMyNeural` (nữ) / `vi-VN-NamMinhNeural` (nam), không cần key |
 

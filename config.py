@@ -25,8 +25,10 @@ DEFAULTS = {
     "admit_ai_if_asked": True,
     "llm": {
         "providers": [
-            {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile",
-             "api_key_env": "GROQ_API_KEY"},
+            {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b",
+             "api_key_env": "GROQ_API_KEY", "max_tokens": 600, "extra": {"reasoning_effort": "low"}},
+            {"base_url": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-20b",
+             "api_key_env": "GROQ_API_KEY", "max_tokens": 600, "extra": {"reasoning_effort": "low"}},
             {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
              "model": "gemini-2.0-flash", "api_key_env": "GEMINI_API_KEY"},
         ],

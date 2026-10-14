@@ -140,20 +140,23 @@ class Brain:
                 continue
             for attempt in range(2):
                 try:
+                    payload = {"model": prov["model"], "messages": messages,
+                               "temperature": llm.get("temperature", 0.9),
+                               "max_tokens": prov.get("max_tokens", llm.get("max_tokens", 120))}
+                    payload.update(prov.get("extra", {}))      # vd reasoning_effort cho gpt-oss
                     r = await self.http.post(
                         prov["base_url"].rstrip("/") + "/chat/completions",
-                        headers={"Authorization": f"Bearer {key}"},
-                        json={"model": prov["model"], "messages": messages,
-                              "temperature": llm.get("temperature", 0.9),
-                              "max_tokens": llm.get("max_tokens", 120)},
-                    )
+                        headers={"Authorization": f"Bearer {key}"}, json=payload)
                     if r.status_code == 429:
                         await asyncio.sleep(1.5 * (attempt + 1))
                         continue
-                    r.raise_for_status()
+                    if r.status_code >= 400:
+                        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
                     out = (r.json()["choices"][0]["message"]["content"] or "").strip()
+                    out = re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
                     if out:
                         return out
+                    log.warning("LLM %s trả về rỗng (có thể hết token do model suy luận)", prov["model"])
                 except Exception as e:
                     last_err = e
                     log.warning("LLM %s lỗi (lần %d): %s", prov["model"], attempt + 1, e)
