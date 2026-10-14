@@ -30,6 +30,27 @@ _STT_HALLUCINATIONS = (
 )
 
 
+def _norm_tokens(s: str) -> list[str]:
+    return re.sub(r"[^\w\s]", " ", s.lower()).split()
+
+
+def is_prompt_echo(text: str, prompt: str) -> bool:
+    """Whisper gặp tiếng nhiễu hay đọc lại phần 'danh sách từ khóa' trong stt.prompt (vd 'Kèo, slot, karaoke, quận 7...').
+    Chỉ xét các đoạn dạng danh sách (>=4 dấu phẩy) để không chặn nhầm lời nói thật giống câu mẫu."""
+    import difflib
+    toks = _norm_tokens(text)
+    if len(toks) < 4:
+        return False
+    for seg in prompt.split("."):
+        if seg.count(",") < 4:
+            continue
+        ref = _norm_tokens(seg)
+        m = difflib.SequenceMatcher(None, toks, ref, autojunk=False)
+        if sum(bl.size for bl in m.get_matching_blocks()) / len(toks) >= 0.7:
+            return True
+    return False
+
+
 def _normalize_gain(samples):
     """Tiếng qua điện thoại thường nhỏ -> nâng biên độ lên vừa phải (tối đa x6) để Whisper nghe rõ hơn."""
     import numpy as np
@@ -100,6 +121,7 @@ def clean_for_speech(text: str) -> str:
     text = re.sub(r"\([^)]*\)", "", text)                  # (đợi anh trả lời)
     text = re.sub(r'[“”"«»]', "", text)
     text = re.sub(r"[#*_`>~]+", "", text)
+    text = re.sub(r"([.!?…])(?=[A-Za-zÀ-ỹ])", r"\1 ", text)      # "hả.Mình" -> "hả. Mình" (model hay quên cách)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -235,6 +257,9 @@ class Brain:
                 log.warning("STT %s lỗi: %s", prov, e)
         text = (text or "").strip()
         low = text.lower()
+        if text and is_prompt_echo(text, stt.get("prompt", "")):
+            log.info("STT bỏ qua câu nghi là đọc lại stt.prompt: %r", text)
+            return ""
         if any(h in low for h in _STT_HALLUCINATIONS):
             log.info("STT bỏ qua câu nghi bịa: %r", text)
             return ""
