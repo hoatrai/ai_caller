@@ -17,7 +17,8 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
-from brain import HANGUP_TAG, Brain, build_system_prompt, clean_for_speech, split_sentences
+from brain import (HANGUP_TAG, Brain, build_system_prompt, clean_for_speech, split_for_speech,
+                   split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
 from persona import Persona
 from signaling import PhoenixRoom
@@ -285,7 +286,7 @@ class CallSession:
         if not text:
             return
         self._interrupted = False
-        sentences = split_sentences(text) or [text]
+        sentences = split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate)) for s in sentences]
@@ -319,7 +320,7 @@ class CallSession:
         history: list[dict] = []
         deadline = time.time() + cfg["max_call_seconds"]
         idle = 0
-        min_turns = int(cfg.get("min_turns_before_hangup", 6))
+        min_turns = int(cfg.get("min_turns_before_hangup", 4))
         reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
@@ -345,11 +346,15 @@ class CallSession:
                 await self.say("Ơ mạng em hơi chập chờn, em gọi lại anh sau nha.")
                 break
             hangup = HANGUP_TAG in reply
+            suppressed = False
             if hangup and self.turns + 1 < min_turns:
                 log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
                 hangup = False
+                suppressed = True
             spoken = clean_for_speech(reply)
-            history.append({"role": "assistant", "content": reply.replace(HANGUP_TAG, "").strip()})
+            if suppressed:
+                spoken = strip_farewell(spoken)
+            history.append({"role": "assistant", "content": spoken})
             self.turns += 1
             log.info("🤖 %s: %s", self.persona.call_name, spoken)
             await self.say(spoken)

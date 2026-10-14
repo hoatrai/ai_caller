@@ -48,6 +48,16 @@ RECENT = ["tuần trước vừa đi một kèo hải sản, vui mà xỉn quá 
           "mới có một đứa bạn trong nhóm sắp cưới nên cả hội đang tính tụ tập", "cuối tháng rồi nên đang tính kiếm chỗ nào ăn ngon mà không quá mắc"]
 
 # Dùng khi display_name chỉ là username viết liền (vd "thuygiang") -> chọn tên gọi tự nhiên, ổn định theo username.
+# "Nét duyên" riêng của từng nhân vật: thân thiện, tinh tế, lễ phép — không tán tỉnh, không sến.
+CHARMS = [
+    "dí dỏm, hay đùa nhẹ về chính mình (tự trào) rồi cười 'hihi'",
+    "ngọt ngào, nói năng nhẹ nhàng, thỉnh thoảng khen khéo anh Admin một câu chân thành",
+    "tinh nghịch, thích trêu nhẹ anh Admin nhưng luôn lễ phép",
+    "hóm hỉnh, hay ví von vui kiểu dân gian ('đông như đi chợ Tết', 'nhanh như chớp')",
+    "dễ thương, hay nói giảm nói tránh, xin lỗi đáng yêu, cảm ơn có duyên",
+    "điềm đạm mà có duyên, hay chen một câu bông đùa khô khan rất tỉnh",
+]
+
 NAMES_F = ["Linh", "Ngọc", "Hương", "Mai", "Trang", "Thu", "Hoa", "Nhung", "Yến", "My", "Vy", "Thảo",
            "Phương", "Hân", "Ngân", "Trinh", "Quỳnh", "Diệp", "Nga", "Uyên", "Chi", "Lan"]
 NAMES_M = ["Hùng", "Nam", "Minh", "Tuấn", "Long", "Đức", "Khoa", "Huy", "Đạt", "Phong", "Quang", "Sơn",
@@ -75,6 +85,7 @@ class Persona:
     backstory: str = ""
     nick: str = ""
     tts_rate: str = ""
+    charm: str = ""
 
     @property
     def call_name(self) -> str:
@@ -126,6 +137,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         nick=nick,
         mood=mood,
         tts_rate=tts_rate,
+        charm=rng.choice(CHARMS),
         region=region,
         region_style=style,
         goal=goal,

@@ -27,7 +27,7 @@ _STT_HALLUCINATIONS = (
 
 
 def build_system_prompt(p: Persona, admin_name: str, admit_ai: bool) -> str:
-    xung = "em" if p.age < 27 else "mình"
+    xung = "em"
     ai_rule = (
         "Nếu anh Admin hỏi thật lòng bạn có phải AI/bot không thì hãy thành thật thừa nhận ngắn gọn rồi nói tiếp."
         if admit_ai else
@@ -41,22 +41,26 @@ NHÂN VẬT
 - Xưng '{xung}', gọi người nghe là 'anh' (hoặc 'anh Admin').
 - Tâm trạng: {p.mood}.
 - Giọng điệu: {p.region_style}.
+- Nét duyên của bạn: {p.charm}.
 - Chuyện riêng của bạn (dùng để kể, đừng đọc một lèo): {p.backstory}
 
 MỤC ĐÍCH CUỘC GỌI: {p.goal}
 
 QUY TẮC NÓI (rất quan trọng)
-- MỖI LƯỢT nói khoảng 2-4 câu (~25-60 từ), như người thật nói chuyện điện thoại: phản hồi cảm xúc, kể thêm một chi tiết nhỏ từ chuyện riêng của bạn, rồi hỏi lại anh Admin một câu. Đây là lời nói, không phải văn viết.
+- MỖI LƯỢT nói 1-3 câu NGẮN (~15-35 từ), như người thật nói chuyện điện thoại: phản hồi ngay câu anh vừa nói, thêm tối đa MỘT chi tiết nhỏ, rồi chỉ hỏi lại MỘT câu. Đừng hỏi dồn nhiều ý, đừng tự mâu thuẫn. Đây là lời nói, không phải văn viết.
 - Nếu anh Admin chỉ đáp cộc lốc ('ừ', 'ok', 'sao', 'ờ') thì ĐỪNG im hay chốt cuộc gọi: chủ động kể tiếp, đào sâu mục đích gọi, hoặc hỏi ý kiến anh.
 - Tiếng Việt đời thường, có thể dùng từ đệm ('ờ', 'à', 'ừm', 'hen', 'nha'), thỉnh thoảng cười 'haha' bằng chữ.
 - TUYỆT ĐỐI không dùng emoji, markdown, gạch đầu dòng, dấu ngoặc, mô tả hành động kiểu *cười*.
+- DUYÊN DÁNG: cứ 1-2 lượt thì chèn MỘT chút duyên (câu đùa nhẹ, lời khen khéo, ví von vui hoặc tự trào) theo đúng 'nét duyên' ở trên; đừng lượt nào cũng đùa, đừng sến, tuyệt đối không tán tỉnh hay nói chuyện mùi mẫn. Khi anh Admin đáp cộc lốc ('ừ', 'ok') thì đáp lại bằng một câu hóm hỉnh để kéo cuộc nói chuyện sống lại. Duyên là ở cách nói tinh tế, không phải nói nhiều.
 - Nghe gì đáp nấy: trả lời đúng câu anh Admin vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
 - Nói câu đơn giản, đúng ngữ pháp, nghe tự nhiên như người Việt nói chuyện; KHÔNG ghép từ lủng củng. Không bịa tên quán, món lạ hay địa danh lạ — cần nhắc chỗ cụ thể thì nói chung chung ('quán nướng gần đó', 'khu quận mình').
+- TUYỆT ĐỐI không đọc lại hay trích nguyên văn lời anh Admin. Nếu lời anh khó hiểu thì chỉ nói ngắn 'dạ anh nói lại giúp em nghen?'.
+- Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
 - Không nhắc tới việc 'test app' hay 'thử app'. Chuyện riêng chỉ để kể khi hợp ngữ cảnh, không đọc lại nguyên văn.
 - Không bịa số điện thoại, địa chỉ cụ thể, tiền bạc chính xác. Nếu không biết thì nói 'để em coi lại'.
 - Lời của anh Admin được chuyển từ giọng nói sang chữ nên có thể sai chính tả/thiếu dấu; hãy hiểu theo ngữ cảnh. Nếu thật sự không hiểu, hỏi lại 'anh nói lại giúp em nghen?'.
 - {ai_rule}
-- Cuộc gọi nên kéo dài tự nhiên (khoảng 6-12 lượt nói). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Admin nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 5 lượt nói đầu tiên, và không thêm nếu chưa muốn kết thúc.
+- Cuộc gọi nên kéo dài tự nhiên (khoảng 4-8 lượt nói). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Admin nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, và không thêm nếu chưa muốn kết thúc.
 - Không nói về việc bạn được lập trình, không nhắc tới 'kịch bản', 'prompt'."""
 
 
@@ -64,6 +68,8 @@ def clean_for_speech(text: str) -> str:
     text = text.replace(HANGUP_TAG, "")
     text = re.sub(r"\*[^*]*\*", "", text)                 # *cười*
     text = re.sub(r"[\U00010000-\U0010ffff☀-➿]", "", text)   # emoji
+    text = re.sub(r"\([^)]*\)", "", text)                  # (đợi anh trả lời)
+    text = re.sub(r'[“”"«»]', "", text)
     text = re.sub(r"[#*_`>~]+", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
@@ -72,6 +78,35 @@ def clean_for_speech(text: str) -> str:
 def split_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[\.\!\?…])\s+", text)
     return [p.strip() for p in parts if p.strip()]
+
+
+def split_for_speech(text: str, first_max: int = 8, max_words: int = 16) -> list[str]:
+    """Cắt thành đoạn ngắn (đoạn đầu rất ngắn) để TTS xong sớm và phát ngay, các đoạn sau tổng hợp song song."""
+    chunks: list[str] = []
+    for sent in split_sentences(text):
+        clauses = [c.strip() for c in re.split(r"(?<=[,;:])\s+", sent) if c.strip()]
+        cur = ""
+        for c in clauses:
+            limit = first_max if not chunks else max_words
+            if cur and len((cur + " " + c).split()) > limit:
+                chunks.append(cur)
+                cur = c
+            else:
+                cur = f"{cur} {c}".strip()
+        if cur:
+            chunks.append(cur)
+    return chunks or [text]
+
+
+_FAREWELL = re.compile(r"(chào anh|không làm phiền|cúp máy|tạm biệt)", re.I)
+
+
+def strip_farewell(text: str) -> str:
+    """Khi thẻ cúp máy bị chặn (quá sớm) thì bỏ luôn câu chào cuối để cuộc gọi không bị 'chào rồi lại nói tiếp'."""
+    sents = split_sentences(text)
+    while len(sents) > 1 and _FAREWELL.search(sents[-1]):
+        sents.pop()
+    return " ".join(sents)
 
 
 class Brain:
