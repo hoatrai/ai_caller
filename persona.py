@@ -5,21 +5,21 @@ from dataclasses import dataclass
 
 # (mục tiêu cuộc gọi, câu gợi ý mở đầu — LLM tự diễn đạt lại, không đọc nguyên văn)
 SCENARIOS = [
-    ("Rủ anh Admin đi nhậu/ăn uống tối nay, hỏi anh có rảnh không và gợi ý khu vực.",
+    ("Rủ anh Hùng đi nhậu/ăn uống tối nay, hỏi anh có rảnh không và gợi ý khu vực.",
      "rủ đi nhậu tối nay"),
     ("Hỏi cách tìm kèo gần mình trong app: bật 'đang tìm kèo' rồi mà thấy ít người quá.",
      "hỏi cách tìm kèo gần nhà"),
     ("Báo một lỗi nhỏ gặp phải khi dùng app (vd: lúc gọi video bị giật, hoặc không thấy bạn bè trên bản đồ) và hỏi xem có sửa chưa.",
      "báo lỗi app"),
-    ("Xin vào một kèo đang đầy chỗ, nhờ anh Admin giúp xem còn slot không.",
+    ("Xin vào một kèo đang đầy chỗ, nhờ anh Hùng giúp xem còn slot không.",
      "xin slot kèo"),
-    ("Hỏi anh Admin gợi ý một quán nhậu/karaoke/bar ổn áp ở quận mình để rủ nhóm bạn đi.",
+    ("Hỏi anh Hùng gợi ý một quán nhậu/karaoke/bar ổn áp ở quận mình để rủ nhóm bạn đi.",
      "hỏi gợi ý quán"),
     ("Góp ý một tính năng mong muốn cho app (vd: chia tiền sau buổi nhậu, nhắc giờ hẹn), nói chuyện thân thiện.",
      "góp ý tính năng"),
-    ("Gọi làm quen, hỏi thăm anh Admin dạo này thế nào, kể chuyện vừa đi kèo hôm qua vui ra sao.",
+    ("Gọi làm quen, hỏi thăm anh Hùng dạo này thế nào, kể chuyện vừa đi kèo hôm qua vui ra sao.",
      "hỏi thăm kể chuyện kèo"),
-    ("Báo là mình sẽ tới trễ một kèo mà anh Admin cũng có tham gia, xin lỗi và hỏi mọi người đã đến chưa.",
+    ("Báo là mình sẽ tới trễ một kèo mà anh Hùng cũng có tham gia, xin lỗi và hỏi mọi người đã đến chưa.",
      "báo tới trễ"),
 ]
 
@@ -51,8 +51,8 @@ RECENT = ["tuần trước vừa đi một kèo hải sản, vui mà xỉn quá 
 # "Nét duyên" riêng của từng nhân vật: thân thiện, tinh tế, lễ phép — không tán tỉnh, không sến.
 CHARMS = [
     "dí dỏm, hay đùa nhẹ về chính mình (tự trào) rồi cười 'hihi'",
-    "ngọt ngào, nói năng nhẹ nhàng, thỉnh thoảng khen khéo anh Admin một câu chân thành",
-    "tinh nghịch, thích trêu nhẹ anh Admin nhưng luôn lễ phép",
+    "ngọt ngào, nói năng nhẹ nhàng, thỉnh thoảng khen khéo anh Hùng một câu chân thành",
+    "tinh nghịch, thích trêu nhẹ anh Hùng nhưng luôn lễ phép",
     "hóm hỉnh, hay ví von vui kiểu dân gian ('đông như đi chợ Tết', 'nhanh như chớp')",
     "dễ thương, hay nói giảm nói tránh, xin lỗi đáng yêu, cảm ơn có duyên",
     "điềm đạm mà có duyên, hay chen một câu bông đùa khô khan rất tỉnh",
@@ -123,11 +123,11 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     nick = ""
     mood = rng.choice(MOODS)
     if "nhanh" in mood or "vội" in mood:
-        tts_rate = "+24%"
+        tts_rate = "+12%"
     elif "chậm" in mood:
-        tts_rate = "+10%"
+        tts_rate = "-2%"
     else:
-        tts_rate = rng.choice(["+16%", "+20%"])
+        tts_rate = rng.choice(["+4%", "+8%"])
     if len(words) < 2:   # chỉ 1 từ (username viết liền) -> đặt tên gọi tự nhiên, cố định theo username
         pool = NAMES_F if gender == "female" else NAMES_M
         nick = pool[int(hashlib.md5(username.encode()).hexdigest(), 16) % len(pool)]

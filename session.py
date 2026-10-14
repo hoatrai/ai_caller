@@ -327,7 +327,7 @@ class CallSession:
         utt = await self._next_utterance(6.0)
         heard = await self.brain.transcribe(utt, self.bot["token"]) if utt is not None else ""
         history.append({"role": "user",
-                        "content": heard or "(anh Admin vừa bắt máy, chưa nói gì — bạn mở lời trước)"})
+                        "content": heard or "(anh Hùng vừa bắt máy, chưa nói gì — bạn mở lời trước)"})
 
         while not self.ended.is_set():
             if time.time() > deadline:
@@ -372,14 +372,14 @@ class CallSession:
                     reason = "idle"
                     await self.say("Alô? Chắc anh đang bận, em gọi lại sau nha anh.")
                     break
-                history.append({"role": "user", "content": "(anh Admin im lặng một lúc)"})
+                history.append({"role": "user", "content": "(anh Hùng im lặng một lúc)"})
                 continue
             idle = 0
             t_stt = time.perf_counter()
             heard = await self.brain.transcribe(utt, self.bot["token"])
             log.info("⏱ STT %.1fs", time.perf_counter() - t_stt)
             if not heard:
-                history.append({"role": "user", "content": "(không nghe rõ anh Admin nói gì)"})
+                history.append({"role": "user", "content": "(không nghe rõ anh Hùng nói gì)"})
                 continue
             log.info("👤 adminroot: %s", heard)
             history.append({"role": "user", "content": heard})

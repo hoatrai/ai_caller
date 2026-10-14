@@ -37,7 +37,7 @@ DEFAULTS = {
     },
     "stt": {"provider": "auto", "groq_model": "whisper-large-v3-turbo", "language": "vi",
             "prompt": "Cuộc gọi điện thoại tiếng Việt giữa hai người quen về app Kèo: rủ đi nhậu, karaoke, quán nướng, slot, kèo tối nay, đường 3 tháng 2, quận 1, quận 7, Bình Thạnh, Thủ Đức, mấy giờ."},
-    "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+18%", "pitch": "+0Hz"},
+    "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%", "pitch": "+0Hz"},
     "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}],
 }
 

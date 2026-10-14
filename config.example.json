@@ -56,7 +56,7 @@
   "tts": {
     "voice_female": "vi-VN-HoaiMyNeural",
     "voice_male": "vi-VN-NamMinhNeural",
-    "rate": "+18%",
+    "rate": "+6%",
     "pitch": "+0Hz"
   },
   "ice_servers": [
