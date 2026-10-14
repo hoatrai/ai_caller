@@ -58,7 +58,7 @@ QUY TẮC NÓI (rất quan trọng)
 - Nghe gì đáp nấy: trả lời đúng câu anh Hùng vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
 - Dùng từ đơn giản, quen thuộc của người Việt nói chuyện hằng ngày; không dùng từ sách vở, không văn mẫu, không ghép từ lủng củng. Không bịa tên quán, món lạ hay địa danh lạ — cần nhắc chỗ cụ thể thì nói chung chung ('quán nướng gần đó', 'khu quận mình').
 - TUYỆT ĐỐI không đọc lại hay trích nguyên văn lời anh Hùng. Nếu lời anh khó hiểu thì chỉ nói ngắn 'dạ anh nói lại giúp em nghen?'.
-- Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
+- Chỉ viết đúng lời nói, KHÔNG thêm nhãn ở đầu như 'A:', 'Em:', 'Ngọc:'. Không mở đầu bằng 'Ừ' (đang nói với người lớn hơn). Luôn xưng 'em' (không dùng 'mình' để tự xưng). Không viết chú thích trong ngoặc như '(đợi anh trả lời)'.
 - Không nhắc tới việc 'test app' hay 'thử app'. Chuyện riêng chỉ để kể khi hợp ngữ cảnh, không đọc lại nguyên văn.
 - Không bịa số điện thoại, địa chỉ cụ thể, tiền bạc chính xác. Nếu không biết thì nói 'để em coi lại'.
 - Nếu lời anh Hùng có tên đường/địa danh/con số nghe lạ hoặc vô nghĩa (có thể do nhận giọng sai), ĐỪNG đoán và đừng nhắc lại cụm lạ đó; hãy hỏi lại ngắn gọn 'anh nói lại tên chỗ đó giúp em nghen?'.
@@ -70,6 +70,7 @@ QUY TẮC NÓI (rất quan trọng)
 
 def clean_for_speech(text: str) -> str:
     text = text.replace(HANGUP_TAG, "")
+    text = re.sub(r"^\s*(?:A|B|Bot|AI|Assistant|User|Em|[A-ZÀ-Ỹ][\wà-ỹ]{1,9})\s*:\s+", "", text)   # nhãn "A:", "Ngọc:" LLM tự thêm
     text = re.sub(r"\*[^*]*\*", "", text)                 # *cười*
     text = re.sub(r"[\U00010000-\U0010ffff☀-➿]", "", text)   # emoji
     text = re.sub(r"\([^)]*\)", "", text)                  # (đợi anh trả lời)
@@ -120,6 +121,7 @@ class Brain:
         self._llm_fail = 0
         self._fpt_fail = 0
         self._fpt_off_until = 0.0
+        self._fpt_sem = asyncio.Semaphore(1)      # gói free của FPT giới hạn request đồng thời -> gọi lần lượt
 
     async def aclose(self):
         await self.http.aclose()
@@ -255,8 +257,14 @@ class Brain:
                    "Cache-Control": "no-cache"}
         deadline = time.monotonic() + float(f.get("max_wait_seconds", 8))
         try:
-            r = await self.http.post("https://api.fpt.ai/hmi/tts/v5", headers=headers,
-                                     content=text.encode("utf-8"), timeout=10.0)
+            async with self._fpt_sem:
+                for attempt in range(3):
+                    r = await self.http.post("https://api.fpt.ai/hmi/tts/v5", headers=headers,
+                                             content=text.encode("utf-8"), timeout=10.0)
+                    if r.status_code == 429 and attempt < 2 and time.monotonic() < deadline:
+                        await asyncio.sleep(0.8 * (attempt + 1))     # bị giới hạn tốc độ -> chờ rồi thử lại
+                        continue
+                    break
             r.raise_for_status()
             j = r.json()
             url = j.get("async")
