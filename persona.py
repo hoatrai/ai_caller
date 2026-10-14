@@ -45,7 +45,13 @@ GROUPS = ["nhóm bạn đại học", "mấy đứa đồng nghiệp", "hội b�
           "hội anh em trong team", "mấy đứa bạn cùng phòng cũ"]
 RECENT = ["tuần trước vừa đi một kèo hải sản, vui mà xỉn quá trời", "hôm qua mới đi karaoke tới khuya, giờ còn khàn giọng",
           "cuối tuần rồi nhóm kéo nhau đi quán nướng, chia tiền loạn cả lên", "tuần này công việc dồn dập nên đang muốn xả stress",
-          "mới có một đứa bạn trong nhóm sắp cưới nên cả hội đang tính tụ tập", "vừa lên đời điện thoại mới nên đang dùng app thử đủ thứ"]
+          "mới có một đứa bạn trong nhóm sắp cưới nên cả hội đang tính tụ tập", "cuối tháng rồi nên đang tính kiếm chỗ nào ăn ngon mà không quá mắc"]
+
+# Dùng khi display_name chỉ là username viết liền (vd "thuygiang") -> chọn tên gọi tự nhiên, ổn định theo username.
+NAMES_F = ["Linh", "Ngọc", "Hương", "Mai", "Trang", "Thu", "Hoa", "Nhung", "Yến", "My", "Vy", "Thảo",
+           "Phương", "Hân", "Ngân", "Trinh", "Quỳnh", "Diệp", "Nga", "Uyên", "Chi", "Lan"]
+NAMES_M = ["Hùng", "Nam", "Minh", "Tuấn", "Long", "Đức", "Khoa", "Huy", "Đạt", "Phong", "Quang", "Sơn",
+           "Tài", "Trung", "Bình", "Thanh", "Bảo", "Hiếu", "Kiên", "Toàn", "Vinh", "Dũng"]
 
 FEMALE_HINTS = ("anh", "linh", "ngoc", "ngọc", "huong", "hương", "lan", "mai", "trang", "thu", "hoa",
                 "nhung", "yen", "yến", "my", "vy", "thao", "thảo", "phuong", "phương", "han", "hân",
@@ -67,10 +73,13 @@ class Persona:
     scenario_tag: str
     age: int
     backstory: str = ""
+    nick: str = ""
 
     @property
     def call_name(self) -> str:
         """Tên tự xưng trong lời nói (lấy từ cuối display_name, bỏ số/ký tự lạ)."""
+        if self.nick:
+            return self.nick
         parts = [p for p in "".join(c if c.isalpha() or c == " " else " " for c in self.display_name).split() if p]
         return parts[-1].capitalize() if parts else "em"
 
@@ -95,10 +104,18 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     pool = [s for s in SCENARIOS if scenario_tag in (None, s[1])] or SCENARIOS
     goal, tag = rng.choice(pool)
     region, style = rng.choice(REGIONS)
+    shown = display_name or username
+    words = [w for w in "".join(c if c.isalpha() or c == " " else " " for c in shown).split() if w]
+    gender = guess_gender(username, shown if display_name else "", account.get("gender"))
+    nick = ""
+    if len(words) < 2:   # chỉ 1 từ (username viết liền) -> đặt tên gọi tự nhiên, cố định theo username
+        pool = NAMES_F if gender == "female" else NAMES_M
+        nick = pool[int(hashlib.md5(username.encode()).hexdigest(), 16) % len(pool)]
     return Persona(
         username=username,
         display_name=display_name or username,
-        gender=guess_gender(username, display_name or "", account.get("gender")),
+        gender=gender,
+        nick=nick,
         mood=rng.choice(MOODS),
         region=region,
         region_style=style,

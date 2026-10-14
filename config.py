@@ -32,7 +32,7 @@ DEFAULTS = {
             {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
              "model": "gemini-2.0-flash", "api_key_env": "GEMINI_API_KEY"},
         ],
-        "temperature": 0.9,
+        "temperature": 0.7,
         "max_tokens": 220,
     },
     "stt": {"provider": "auto", "groq_model": "whisper-large-v3-turbo", "language": "vi"},

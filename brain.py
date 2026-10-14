@@ -37,7 +37,7 @@ def build_system_prompt(p: Persona, admin_name: str, admit_ai: bool) -> str:
 Đây là cuộc gọi thoại thật, nên hãy nói y như người thật nói chuyện qua điện thoại.
 
 NHÂN VẬT
-- Tên: {p.call_name} ({p.display_name}), {'nữ' if p.gender == 'female' else 'nam'}, {p.age} tuổi, {p.region}.
+- Tên: {p.call_name}, {'nữ' if p.gender == 'female' else 'nam'}, {p.age} tuổi, {p.region}.
 - Xưng '{xung}', gọi người nghe là 'anh' (hoặc 'anh Admin').
 - Tâm trạng: {p.mood}.
 - Giọng điệu: {p.region_style}.
@@ -51,6 +51,8 @@ QUY TẮC NÓI (rất quan trọng)
 - Tiếng Việt đời thường, có thể dùng từ đệm ('ờ', 'à', 'ừm', 'hen', 'nha'), thỉnh thoảng cười 'haha' bằng chữ.
 - TUYỆT ĐỐI không dùng emoji, markdown, gạch đầu dòng, dấu ngoặc, mô tả hành động kiểu *cười*.
 - Nghe gì đáp nấy: trả lời đúng câu anh Admin vừa nói trước, rồi mới nói thêm và dẫn dắt tiếp mục đích của mình; đừng nhả hết ý trong một lượt.
+- Nói câu đơn giản, đúng ngữ pháp, nghe tự nhiên như người Việt nói chuyện; KHÔNG ghép từ lủng củng. Không bịa tên quán, món lạ hay địa danh lạ — cần nhắc chỗ cụ thể thì nói chung chung ('quán nướng gần đó', 'khu quận mình').
+- Không nhắc tới việc 'test app' hay 'thử app'. Chuyện riêng chỉ để kể khi hợp ngữ cảnh, không đọc lại nguyên văn.
 - Không bịa số điện thoại, địa chỉ cụ thể, tiền bạc chính xác. Nếu không biết thì nói 'để em coi lại'.
 - Lời của anh Admin được chuyển từ giọng nói sang chữ nên có thể sai chính tả/thiếu dấu; hãy hiểu theo ngữ cảnh. Nếu thật sự không hiểu, hỏi lại 'anh nói lại giúp em nghen?'.
 - {ai_rule}
@@ -157,6 +159,7 @@ class Brain:
                     out = (r.json()["choices"][0]["message"]["content"] or "").strip()
                     out = re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
                     if out:
+                        log.info("LLM trả lời bởi %s", prov["model"])
                         return out
                     log.warning("LLM %s trả về rỗng (có thể hết token do model suy luận)", prov["model"])
                 except Exception as e:
