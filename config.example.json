@@ -15,7 +15,7 @@
     "tz": "Asia/Ho_Chi_Minh"
   },
   "ring_timeout_seconds": 35,
-  "max_call_seconds": 240,
+  "max_call_seconds": 360,
   "idle_hangup_seconds": 25,
   "admit_ai_if_asked": true,
   "llm": {
@@ -45,7 +45,7 @@
       }
     ],
     "temperature": 0.9,
-    "max_tokens": 120
+    "max_tokens": 220
   },
   "stt": {
     "provider": "auto",

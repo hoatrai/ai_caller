@@ -20,7 +20,7 @@ DEFAULTS = {
     "same_user_cooldown_minutes": 90,
     "quiet_hours": {"enabled": True, "start": "00:00", "end": "07:00", "tz": "Asia/Ho_Chi_Minh"},
     "ring_timeout_seconds": 35,
-    "max_call_seconds": 240,
+    "max_call_seconds": 360,
     "idle_hangup_seconds": 25,
     "admit_ai_if_asked": True,
     "llm": {
@@ -33,7 +33,7 @@ DEFAULTS = {
              "model": "gemini-2.0-flash", "api_key_env": "GEMINI_API_KEY"},
         ],
         "temperature": 0.9,
-        "max_tokens": 120,
+        "max_tokens": 220,
     },
     "stt": {"provider": "auto", "groq_model": "whisper-large-v3-turbo", "language": "vi"},
     "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%"},

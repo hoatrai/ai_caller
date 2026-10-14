@@ -82,7 +82,7 @@ async def resolve_admin_id(cfg: dict, token: str) -> int:
 
 # ---------------------------------------------------------------- Call session
 class CallSession:
-    BARGE_IN_MS = 350
+    BARGE_IN_MS = 600
 
     def __init__(self, cfg: dict, brain: Brain, bot: dict, persona: Persona, admin_id: int):
         self.cfg, self.brain, self.bot, self.persona = cfg, brain, bot, persona
@@ -261,7 +261,7 @@ class CallSession:
                 # Đang nói: không đưa vào VAD (tránh nghe lại chính mình), chỉ canh người kia chen ngang.
                 recent.append(samples)
                 rms = float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
-                loud_ms = loud_ms + ms if rms > max(det.noise * 5, 1200.0) else 0.0
+                loud_ms = loud_ms + ms if rms > max(det.noise * 6, 1800.0) else 0.0
                 if loud_ms >= self.BARGE_IN_MS:
                     log.info("✋ adminroot chen ngang -> bot im")
                     self.voice.stop_speaking()
@@ -314,7 +314,7 @@ class CallSession:
         history: list[dict] = []
         deadline = time.time() + cfg["max_call_seconds"]
         idle = 0
-        min_turns = int(cfg.get("min_turns_before_hangup", 3))
+        min_turns = int(cfg.get("min_turns_before_hangup", 6))
         reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
