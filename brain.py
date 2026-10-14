@@ -5,6 +5,10 @@
   TTS : edge-tts (giọng Microsoft Edge, miễn phí, không cần key) — vi-VN-HoaiMy / NamMinh
 """
 import asyncio
+from pathlib import Path
+import datetime as _dt
+import hashlib
+import json
 import logging
 import os
 import re
@@ -179,12 +183,33 @@ def strip_farewell(text: str) -> str:
     return " ".join(sents)
 
 
+# Giọng Gemini có sẵn (mỗi user chọn cố định 1 giọng theo username). Ghi đè bằng tts.gemini_voices_female/male
+# trong config, hoặc "gemini_voice" trong từng account. Nghe thử từng giọng trước khi dùng vì chất lượng tiếng Việt khác nhau.
+GEMINI_VOICES_F = ["Leda", "Kore", "Aoede", "Zephyr", "Sulafat", "Despina"]
+GEMINI_VOICES_M = ["Orus", "Puck", "Charon", "Fenrir", "Algieba", "Iapetus"]
+
+
+def pick_gemini_voice(tts: dict, gender: str, voice_key: str = "", override: str = "") -> str:
+    """Chọn giọng Gemini riêng cho từng user: override > hash(username) trong danh sách giọng theo giới tính."""
+    if override:
+        return override
+    fem = gender == "female"
+    legacy = tts.get("gemini_voice_female", "Leda") if fem else tts.get("gemini_voice_male", "Orus")
+    if not voice_key:
+        return legacy
+    pool = list(tts.get("gemini_voices_female" if fem else "gemini_voices_male") or [])
+    if not pool:
+        pool = [legacy] + [v for v in (GEMINI_VOICES_F if fem else GEMINI_VOICES_M) if v != legacy]
+    return pool[int(hashlib.md5(voice_key.encode()).hexdigest(), 16) % len(pool)]
+
+
 class Brain:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
         self._gemini_block_until = 0.0     # sau khi Gemini lỗi (429/treo) thì tạm bỏ qua nó, dùng edge-tts ngay
         self._llm_fail = 0
+        self._llm_block: dict[str, float] = {}   # model -> monotonic time; bị 429 thì xếp xuống cuối hàng một lúc
 
     async def aclose(self):
         await self.http.aclose()
@@ -263,10 +288,14 @@ class Brain:
         llm = self.cfg["llm"]
         messages = [{"role": "system", "content": system_prompt}] + history
         last_err = None
-        for prov in llm["providers"]:
+        import time as _time
+        now = _time.monotonic()
+        cooldown = float(llm.get("rate_limit_cooldown_seconds", 60))
+        provs = [p for p in llm["providers"] if os.getenv(p.get("api_key_env", ""), "")]
+        # Provider vừa bị 429 xếp xuống cuối (vẫn thử nếu mọi provider khác hỏng), không ngủ-thử-lại nữa.
+        provs.sort(key=lambda p: self._llm_block.get(p["model"], 0.0) > now)
+        for prov in provs:
             key = os.getenv(prov.get("api_key_env", ""), "")
-            if not key:
-                continue
             for attempt in range(2):
                 try:
                     payload = {"model": prov["model"], "messages": messages,
@@ -277,8 +306,10 @@ class Brain:
                         prov["base_url"].rstrip("/") + "/chat/completions",
                         headers={"Authorization": f"Bearer {key}"}, json=payload)
                     if r.status_code == 429:
-                        await asyncio.sleep(1.5 * (attempt + 1))
-                        continue
+                        self._llm_block[prov["model"]] = _time.monotonic() + cooldown
+                        log.warning("LLM %s bị 429 -> chuyển provider khác, nghỉ model này %.0fs", prov["model"], cooldown)
+                        last_err = RuntimeError("HTTP 429")
+                        break
                     if r.status_code >= 400:
                         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
                     out = (r.json()["choices"][0]["message"]["content"] or "").strip()
@@ -294,12 +325,13 @@ class Brain:
         return ""
 
     # ------------------------------------------------------------------ TTS
-    async def _synth_gemini(self, text: str, gender: str, rate: str = "", region: str = "") -> bytes:
+    async def _synth_gemini(self, text: str, gender: str, rate: str = "", region: str = "",
+                            voice_key: str = "", voice_override: str = "") -> bytes:
         """Gemini TTS (tự nhiên hơn edge-tts, có ngữ điệu/nhịp thở). Bật bằng tts.provider = "gemini". Lỗi -> trả b'' để fallback."""
         import base64
         import numpy as np
         tts = self.cfg["tts"]
-        voice = tts.get("gemini_voice_female", "Leda") if gender == "female" else tts.get("gemini_voice_male", "Orus")
+        voice = pick_gemini_voice(tts, gender, voice_key, voice_override)
         model = tts.get("gemini_model", "gemini-3.1-flash-tts-preview")
         accent = "miền Bắc (Hà Nội)" if "Bắc" in (region or "") else "miền Nam (Sài Gòn)"
         style = tts.get("gemini_style", "Nói tiếng Việt như người thật đang nói chuyện điện thoại với người quen: tự nhiên, thoải mái, nhịp nói không đều, không đọc diễn cảm kiểu phát thanh viên")
@@ -336,14 +368,46 @@ class Brain:
             log.warning("Gemini TTS lỗi: %r -> nghỉ Gemini %.0fs, dùng edge-tts", e, cooldown)
             return b""
 
-    async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "") -> bytes:
+    # ---- ngân sách Gemini TTS theo ngày (free tier chỉ ~10 request/ngày) ----
+    def _gemini_budget_take(self) -> bool:
+        """Trừ 1 lượt trong ngân sách Gemini TTS của hôm nay. False = hết ngân sách -> dùng edge-tts.
+        Đếm theo ngày giờ Thái Bình Dương (Google reset hạn mức lúc 0h PT), lưu ở ai_caller_gemini_usage.json."""
+        tts = self.cfg["tts"]
+        limit = int(tts.get("gemini_daily_limit", 8))      # chừa 2 request dự phòng cho lần test tay
+        try:
+            from zoneinfo import ZoneInfo
+            today = _dt.datetime.now(ZoneInfo(tts.get("gemini_quota_tz", "America/Los_Angeles"))).date().isoformat()
+        except Exception:
+            today = _dt.date.today().isoformat()
+        path = Path(__file__).resolve().parent / "ai_caller_gemini_usage.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        if data.get("date") != today:
+            data = {"date": today, "count": 0}
+        if data["count"] >= limit:
+            log.info("Gemini TTS hết ngân sách hôm nay (%d/%d) -> dùng edge-tts", data["count"], limit)
+            return False
+        data["count"] += 1
+        try:
+            path.write_text(json.dumps(data), encoding="utf-8")
+        except Exception as e:
+            log.warning("Không ghi được %s: %s", path.name, e)
+        log.info("Gemini TTS: dùng lượt %d/%d của hôm nay", data["count"], limit)
+        return True
+
+    async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "",
+                    gemini: bool = False, voice_key: str = "", voice_override: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (pitch/rate: chất giọng riêng của từng user; region: dành cho việc chọn giọng theo miền sau này)"""
         text = clean_for_speech(text)
         if not text:
             return b""
         tts = self.cfg["tts"]
-        if tts.get("provider") == "gemini" and os.getenv("GEMINI_API_KEY"):
-            pcm = await self._synth_gemini(text, gender, rate, region)
+        # Gemini khi: provider="gemini" (mọi câu), hoặc người gọi yêu cầu gemini=True (vd lượt nói đầu) và còn ngân sách ngày.
+        want_gemini = tts.get("provider") == "gemini" or (gemini and tts.get("gemini_first_turn", False) and self._gemini_budget_take())
+        if want_gemini and os.getenv("GEMINI_API_KEY"):
+            pcm = await self._synth_gemini(text, gender, rate, region, voice_key, voice_override)
             if pcm:
                 return pcm
             log.warning("Gemini TTS lỗi -> dùng edge-tts")

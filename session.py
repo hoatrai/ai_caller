@@ -319,7 +319,7 @@ class CallSession:
                 await self._utt_q.put(utt)
 
     # ---------------- nói
-    async def say(self, text: str):
+    async def say(self, text: str, gemini: bool = False):
         text = clean_for_speech(text)
         if not text:
             return
@@ -327,12 +327,15 @@ class CallSession:
         # Gemini TTS không stream: nguyên đoạn dài = chờ lâu. Tách câu để câu đầu (ngắn) ra tiếng sớm,
         # các câu sau tổng hợp song song trong lúc câu đầu đang phát. Đặt tts.gemini_split=false để về cách cũ.
         tts_cfg = self.cfg["tts"]
-        one_chunk = tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", False)
+        one_chunk = (tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", False)) \
+            or (gemini and tts_cfg.get("gemini_first_turn", False))      # lượt đầu dùng Gemini: 1 request cho cả lượt
         sentences = [text] if one_chunk else split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
-                                                   self.persona.tts_pitch)) for s in sentences]
+                                                   self.persona.tts_pitch, gemini=gemini,
+                                                   voice_key=self.persona.username,
+                                                   voice_override=self.persona.gemini_voice)) for s in sentences]
         try:
             for t in tasks:
                 pcm = await t
@@ -404,7 +407,7 @@ class CallSession:
             history.append({"role": "assistant", "content": spoken})
             self.turns += 1
             log.info("🤖 %s: %s", self.persona.call_name, spoken)
-            await self.say(spoken)
+            await self.say(spoken, gemini=(self.turns == 1))      # lượt nói đầu của bot = lời chào -> Gemini
             if hangup:
                 reason = "bot_hangup_tag"
                 await asyncio.sleep(1.2)      # chờ đuôi lời chào kịp tới điện thoại rồi mới cúp, khỏi cụt chữ

@@ -185,6 +185,7 @@ class Persona:
     charm: str = ""
     facts: str = ""
     gender_why: str = ""
+    gemini_voice: str = ""   # ghi đè giọng Gemini cho user này (account.gemini_voice), rỗng = tự chọn theo username
 
     @property
     def call_name(self) -> str:
@@ -234,6 +235,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         display_name=display_name or username,
         gender=gender,
         gender_why=gender_why,
+        gemini_voice=str(account.get("gemini_voice") or ""),
         nick=nick,
         mood=mood,
         tts_rate=tts_rate,

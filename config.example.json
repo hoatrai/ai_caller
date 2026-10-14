@@ -55,11 +55,15 @@
   },
   "tts": {
     "provider": "edge",
+    "gemini_first_turn": true,
+    "gemini_daily_limit": 8,
     "voice_female": "vi-VN-HoaiMyNeural",
     "voice_male": "vi-VN-NamMinhNeural",
     "rate": "+6%",
     "pitch": "+0Hz",
     "gemini_voice_female": "Leda",
+    "gemini_voices_female": ["Leda", "Kore", "Aoede", "Zephyr", "Sulafat", "Despina"],
+    "gemini_voices_male": ["Orus", "Puck", "Charon", "Fenrir", "Algieba", "Iapetus"],
     "gemini_voice_male": "Orus"
   },
   "ice_servers": [
