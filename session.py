@@ -268,6 +268,13 @@ class CallSession:
         if self._prep is None:
             self._prep = asyncio.create_task(self._prepare_webrtc())
         await self._prep
+        # Đợi đủ offer_delay_seconds kể từ lúc adminroot nghe máy rồi mới gửi offer
+        # (trước đây offer tới app ~5s sau khi nghe vì phải gom ICE; gửi ngay ở giây 0
+        # thì app chưa kịp mở xong màn cuộc gọi).
+        delay = float(self.cfg.get("offer_delay_seconds", 5))
+        wait = delay - (time.perf_counter() - getattr(self, "_t_accept", time.perf_counter()))
+        if wait > 0:
+            await asyncio.sleep(wait)
         self._t_offer = time.perf_counter()
         await self.room.push("webrtc_offer", {"sdp": self.pc.localDescription.sdp})
         log.info("⏱ gửi offer sau %.1fs kể từ lúc nghe máy", self._t_offer - getattr(self, "_t_accept", self._t_offer))
