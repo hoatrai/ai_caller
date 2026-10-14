@@ -125,6 +125,8 @@ async def fake_admin(result: dict):
                 await asyncio.sleep(3.0)           # sau khi bot mở lời xong
                 tone.speak_from = tone.n / 48000
                 result["admin_spoke"] = True
+                await asyncio.sleep(5.0)
+                tone.speak_from = tone.n / 48000      # nói lần 2
             asyncio.create_task(talk_later())
         elif ev == "call_end":
             result["bot_hung_up"] = True
@@ -136,7 +138,8 @@ async def fake_admin(result: dict):
 # ---------------- brain giả
 class FakeBrain:
     def __init__(self):
-        self.replies = ["Alo anh ơi, em hỏi tí nha. Tối nay anh rảnh không?",
+        self.replies = ["Alo anh ơi, em hỏi tí nha. Tối nay anh rảnh không? [CUP_MAY]",
+                        "Dạ anh nói sao em chưa nghe rõ nè.",
                         "Dạ vậy hẹn anh tối nay nha, chào anh. [CUP_MAY]"]
         self.heard = []
 
@@ -180,7 +183,7 @@ async def main():
     assert result["invite"]["call_type"] == "voice" and result["invite"]["from_id"] == BOT_ID
     assert result["bot_frames_loud"] > 50, "admin không nhận được giọng bot"
     assert brain.heard and brain.heard[0] > 8000, "bot không nghe được giọng admin"
-    assert res["turns"] == 2
+    assert res["turns"] == 3, res   # thẻ cúp máy ở lượt 1 phải bị bỏ qua
     assert result.get("bot_hung_up")
     print("E2E OK")
 

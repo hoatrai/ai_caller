@@ -163,6 +163,8 @@ class CallSession:
     async def _dispatch(self):
         while True:
             event, payload = await self.room.events.get()
+            if not event.startswith("webrtc_"):
+                log.info("📩 sự kiện từ Phoenix: %s", event)
             if event == "call_accept":
                 self.accepted.set()
             elif event in ("call_reject", "call_end", "call_timeout", "phx_close"):
@@ -300,6 +302,8 @@ class CallSession:
         history: list[dict] = []
         deadline = time.time() + cfg["max_call_seconds"]
         idle = 0
+        min_turns = int(cfg.get("min_turns_before_hangup", 3))
+        reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
         utt = await self._next_utterance(6.0)
@@ -309,6 +313,7 @@ class CallSession:
 
         while not self.ended.is_set():
             if time.time() > deadline:
+                reason = "max_call_seconds"
                 await self.say(random.choice([
                     "Dạ thôi em không làm phiền anh nữa nha, chào anh.",
                     "Dạ vậy nha anh, em cúp máy nghen, chào anh.",
@@ -317,15 +322,20 @@ class CallSession:
 
             reply = await self.brain.reply(system, history)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
+                reason = "llm_failed"
                 await self.say("Ơ mạng em hơi chập chờn, em gọi lại anh sau nha.")
                 break
             hangup = HANGUP_TAG in reply
+            if hangup and self.turns + 1 < min_turns:
+                log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
+                hangup = False
             spoken = clean_for_speech(reply)
             history.append({"role": "assistant", "content": reply.replace(HANGUP_TAG, "").strip()})
             self.turns += 1
             log.info("🤖 %s: %s", self.persona.call_name, spoken)
             await self.say(spoken)
             if hangup:
+                reason = "bot_hangup_tag"
                 break
             if len(history) > 24:      # giữ ngữ cảnh gọn cho free-tier
                 history = history[-24:]
@@ -335,6 +345,7 @@ class CallSession:
             if utt is None:
                 idle += 1
                 if idle >= 2:
+                    reason = "idle"
                     await self.say("Alô? Chắc anh đang bận, em gọi lại sau nha anh.")
                     break
                 history.append({"role": "user", "content": "(anh Admin im lặng một lúc)"})
@@ -346,3 +357,4 @@ class CallSession:
                 continue
             log.info("👤 adminroot: %s", heard)
             history.append({"role": "user", "content": heard})
+        log.info("Kết thúc hội thoại. Lý do: %s (ended=%s, end_reason=%s)", reason, self.ended.is_set(), self.end_reason)
