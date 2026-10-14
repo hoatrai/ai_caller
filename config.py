@@ -36,7 +36,7 @@ DEFAULTS = {
         "max_tokens": 220,
     },
     "stt": {"provider": "auto", "groq_model": "whisper-large-v3-turbo", "language": "vi"},
-    "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%"},
+    "tts": {"voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+18%", "pitch": "+0Hz"},
     "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}],
 }
 

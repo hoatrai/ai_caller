@@ -104,7 +104,7 @@ class UtteranceDetector:
     nói xong (im lặng >= silence_ms) trả về toàn bộ câu (int16 array) — nếu không thì None.
     """
 
-    def __init__(self, sample_rate=16000, silence_ms=800, min_speech_ms=300,
+    def __init__(self, sample_rate=16000, silence_ms=600, min_speech_ms=300,
                  max_utt_s=20.0, start_ms=120):
         self.sr = sample_rate
         self.silence_ms = silence_ms

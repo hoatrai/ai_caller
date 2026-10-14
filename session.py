@@ -286,10 +286,15 @@ class CallSession:
             return
         self._interrupted = False
         sentences = split_sentences(text) or [text]
-        tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender)) for s in sentences]
+        t_say = time.perf_counter()
+        first = True
+        tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate)) for s in sentences]
         try:
             for t in tasks:
                 pcm = await t
+                if first:
+                    first = False
+                    log.info("⏱ TTS câu đầu sau %.1fs", time.perf_counter() - t_say)
                 if self._interrupted or self.ended.is_set():
                     break
                 self.voice.speak(pcm)
@@ -332,7 +337,9 @@ class CallSession:
                 ]))
                 break
 
+            t_llm = time.perf_counter()
             reply = await self.brain.reply(system, history)
+            log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"
                 await self.say("Ơ mạng em hơi chập chờn, em gọi lại anh sau nha.")
@@ -363,7 +370,9 @@ class CallSession:
                 history.append({"role": "user", "content": "(anh Admin im lặng một lúc)"})
                 continue
             idle = 0
+            t_stt = time.perf_counter()
             heard = await self.brain.transcribe(utt, self.bot["token"])
+            log.info("⏱ STT %.1fs", time.perf_counter() - t_stt)
             if not heard:
                 history.append({"role": "user", "content": "(không nghe rõ anh Admin nói gì)"})
                 continue

@@ -74,6 +74,7 @@ class Persona:
     age: int
     backstory: str = ""
     nick: str = ""
+    tts_rate: str = ""
 
     @property
     def call_name(self) -> str:
@@ -108,6 +109,13 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     words = [w for w in "".join(c if c.isalpha() or c == " " else " " for c in shown).split() if w]
     gender = guess_gender(username, shown if display_name else "", account.get("gender"))
     nick = ""
+    mood = rng.choice(MOODS)
+    if "nhanh" in mood or "vội" in mood:
+        tts_rate = "+24%"
+    elif "chậm" in mood:
+        tts_rate = "+10%"
+    else:
+        tts_rate = rng.choice(["+16%", "+20%"])
     if len(words) < 2:   # chỉ 1 từ (username viết liền) -> đặt tên gọi tự nhiên, cố định theo username
         pool = NAMES_F if gender == "female" else NAMES_M
         nick = pool[int(hashlib.md5(username.encode()).hexdigest(), 16) % len(pool)]
@@ -116,7 +124,8 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         display_name=display_name or username,
         gender=gender,
         nick=nick,
-        mood=rng.choice(MOODS),
+        mood=mood,
+        tts_rate=tts_rate,
         region=region,
         region_style=style,
         goal=goal,

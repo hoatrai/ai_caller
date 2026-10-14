@@ -169,7 +169,7 @@ class Brain:
         return ""
 
     # ------------------------------------------------------------------ TTS
-    async def synth(self, text: str, gender: str) -> bytes:
+    async def synth(self, text: str, gender: str, rate: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi."""
         text = clean_for_speech(text)
         if not text:
@@ -178,7 +178,8 @@ class Brain:
         tts = self.cfg["tts"]
         voice = tts["voice_female"] if gender == "female" else tts["voice_male"]
         try:
-            comm = edge_tts.Communicate(text, voice, rate=tts.get("rate", "+0%"))
+            comm = edge_tts.Communicate(text, voice, rate=rate or tts.get("rate", "+0%"),
+                                        pitch=tts.get("pitch", "+0Hz"))
             mp3 = bytearray()
             async for chunk in comm.stream():
                 if chunk["type"] == "audio":
