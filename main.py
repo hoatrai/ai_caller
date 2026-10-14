@@ -114,6 +114,8 @@ async def amain(args):
     state = State(Path(args.config).resolve().parent / "ai_caller_state.json")
     brain = Brain(cfg)
     try:
+        if not args.dry_run and hasattr(brain, "warmup"):
+            await brain.warmup()      # nạp sẵn VieNeu nếu được bật (không bật thì bỏ qua ngay)
         if args.once or args.dry_run:
             await one_call(cfg, brain, state, args.user, args.scenario, dry=args.dry_run)
             return

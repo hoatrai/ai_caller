@@ -62,9 +62,29 @@
     "rate": "+6%",
     "pitch": "+0Hz",
     "gemini_voice_female": "Leda",
-    "gemini_voices_female": ["Leda", "Kore", "Aoede", "Zephyr", "Sulafat", "Despina"],
-    "gemini_voices_male": ["Orus", "Puck", "Charon", "Fenrir", "Algieba", "Iapetus"],
-    "gemini_voice_male": "Orus"
+    "gemini_voices_female": [
+      "Leda",
+      "Kore",
+      "Aoede",
+      "Zephyr",
+      "Sulafat",
+      "Despina"
+    ],
+    "gemini_voices_male": [
+      "Orus",
+      "Puck",
+      "Charon",
+      "Fenrir",
+      "Algieba",
+      "Iapetus"
+    ],
+    "gemini_voice_male": "Orus",
+    "vieneu_mode": "v3nano",
+    "vieneu_timeout_seconds": 5,
+    "vieneu_slow_seconds": 3,
+    "vieneu_slow_limit": 2,
+    "vieneu_cooldown_seconds": 120,
+    "vieneu_first_turn": false
   },
   "ice_servers": [
     {

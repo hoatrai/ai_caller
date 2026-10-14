@@ -3,6 +3,7 @@
   STT : Groq Whisper (free tier)  |  hoặc route sẵn có nhau/v1/stt/transcribe của anh (tự host)
   LLM : Groq llama-3.3-70b (free) |  dự phòng Gemini Flash (free) — đều chuẩn OpenAI-compatible
   TTS : edge-tts (giọng Microsoft Edge, miễn phí, không cần key) — vi-VN-HoaiMy / NamMinh
+        tuỳ chọn: VieNeu-TTS tự host (CPU/ONNX, tts.provider="vieneu"), lỗi/chậm thì tự lùi về edge-tts
 """
 import asyncio
 from pathlib import Path
@@ -12,6 +13,9 @@ import json
 import logging
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import Optional
 
 import httpx
@@ -239,6 +243,14 @@ class Brain:
         self._gemini_block_until = 0.0     # sau khi Gemini lỗi (429/treo) thì tạm bỏ qua nó, dùng edge-tts ngay
         self._llm_fail = 0
         self._llm_block: dict[str, float] = {}   # model -> monotonic time; bị 429 thì xếp xuống cuối hàng một lúc
+        # VieNeu-TTS: model nạp lười (lần đầu dùng), chạy trong 1 thread riêng (mô hình không chạy song song được).
+        self._vieneu = None
+        self._vieneu_voices: dict[str, list[tuple[str, str]]] = {}     # "female"/"male" -> [(tên giọng, vùng)]
+        self._vieneu_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vieneu")
+        self._vieneu_lock = asyncio.Lock()
+        self._vieneu_load_task: Optional[asyncio.Future] = None
+        self._vieneu_block_until = 0.0
+        self._vieneu_slow = 0
 
     async def aclose(self):
         await self.http.aclose()
@@ -429,6 +441,141 @@ class Brain:
         log.info("Gemini TTS: dùng lượt %d/%d của hôm nay", data["count"], limit)
         return True
 
+    # ------------------------------------------------------------------ VieNeu-TTS (tự host)
+    def _vieneu_enabled(self) -> bool:
+        tts = self.cfg["tts"]
+        return tts.get("provider") == "vieneu" or bool(tts.get("vieneu_first_turn", False))
+
+    def _vieneu_load(self):
+        """Chạy trong thread: nạp model (lần đầu sẽ tải từ Hugging Face) và dựng danh sách giọng theo giới tính/vùng."""
+        from vieneu import Vieneu
+        tts = self.cfg["tts"]
+        mode = tts.get("vieneu_mode", "v3nano")
+        kw = {}
+        if mode == "v3nano":
+            if tts.get("vieneu_threads"):
+                kw["threads"] = int(tts["vieneu_threads"])
+            if tts.get("vieneu_steps"):
+                kw["steps"] = int(tts["vieneu_steps"])        # 8 = nhanh hơn, hơi thô; mặc định của thư viện là 16
+        elif mode == "v3turbo" and tts.get("vieneu_precision"):
+            kw["precision"] = str(tts["vieneu_precision"])     # "int8" nhanh hơn nhưng cần CPU có VNNI
+        eng = Vieneu(mode=mode, **kw)
+        voices: dict[str, list[tuple[str, str]]] = {"female": [], "male": []}
+        for label, name in eng.list_preset_voices():
+            # label dạng "Ái Hân — Nữ · Bắc · Phong cách tin tức"
+            desc = label.split("—", 1)[1].strip() if "—" in label else ""
+            parts = [x.strip() for x in desc.split("·")]
+            g = parts[0] if parts else ""
+            reg = parts[1] if len(parts) > 1 else ""
+            if g == "Nữ":
+                voices["female"].append((name, reg))
+            elif g == "Nam":
+                voices["male"].append((name, reg))
+        log.info("VieNeu (%s) đã nạp: %d giọng nữ, %d giọng nam. Giọng: %s", mode, len(voices["female"]),
+                 len(voices["male"]), ", ".join(n for g in voices.values() for n, _ in g))
+        self._vieneu_voices = voices
+        self._vieneu = eng
+
+    def _vieneu_pick_voice(self, gender: str, region: str, voice_key: str) -> Optional[str]:
+        """Mỗi user một giọng cố định (hash username), đúng giới tính; ưu tiên cùng vùng miền. Không có giọng hợp -> None."""
+        tts = self.cfg["tts"]
+        fem = gender == "female"
+        pool = list(tts.get("vieneu_voices_female" if fem else "vieneu_voices_male") or [])
+        if not pool:
+            cand = self._vieneu_voices.get("female" if fem else "male", [])
+            want = "Bắc" if "Bắc" in (region or "") else "Nam"
+            same = [n for n, r in cand if r == want]
+            pool = same or [n for n, _ in cand]
+        if not pool:
+            return None
+        return pool[int(hashlib.md5((voice_key or "x").encode()).hexdigest(), 16) % len(pool)]
+
+    def _vieneu_infer(self, text: str, voice: str, speed: float):
+        kw = {"voice": voice}
+        if self.cfg["tts"].get("vieneu_mode", "v3nano") == "v3nano":
+            kw["speed"] = speed
+        return self._vieneu.infer(text, **kw), int(self._vieneu.sample_rate)
+
+    @staticmethod
+    def _rate_to_speed(rate: str) -> float:
+        m = re.match(r"^\s*([+-]?\d+)\s*%\s*$", rate or "")
+        return max(0.8, min(1.3, 1.0 + int(m.group(1)) / 100.0)) if m else 1.0
+
+    def _vieneu_trip(self, why: str):
+        cooldown = float(self.cfg["tts"].get("vieneu_cooldown_seconds", 120))
+        self._vieneu_block_until = time.monotonic() + cooldown
+        self._vieneu_slow = 0
+        log.warning("VieNeu %s -> nghỉ VieNeu %.0fs, dùng edge-tts", why, cooldown)
+
+    async def _vieneu_ensure_loaded(self, timeout: float):
+        if self._vieneu is not None:
+            return
+        if self._vieneu_load_task is None or (self._vieneu_load_task.done() and self._vieneu is None):
+            self._vieneu_load_task = asyncio.ensure_future(
+                asyncio.get_running_loop().run_in_executor(self._vieneu_pool, self._vieneu_load))
+        # shield: hết giờ chờ thì model vẫn tiếp tục nạp nền, lần sau dùng được.
+        await asyncio.wait_for(asyncio.shield(self._vieneu_load_task), timeout)
+
+    async def warmup(self):
+        """Nạp sẵn model lúc khởi động (và chạy thử 1 câu ngắn) để cuộc gọi đầu không phải chờ. Lỗi -> chỉ log."""
+        if not self._vieneu_enabled():
+            return
+        tts = self.cfg["tts"]
+        try:
+            await self._vieneu_ensure_loaded(float(tts.get("vieneu_load_timeout_seconds", 600)))
+            voice = self._vieneu_pick_voice("female", "", "warmup") or self._vieneu_pick_voice("male", "", "warmup")
+            if voice:
+                t0 = time.perf_counter()
+                await asyncio.get_running_loop().run_in_executor(
+                    self._vieneu_pool, partial(self._vieneu_infer, "Alo anh Hùng hả? Em nè.", voice, 1.0))
+                log.info("VieNeu warmup xong: câu thử mất %.1fs", time.perf_counter() - t0)
+        except Exception as e:
+            log.warning("VieNeu warmup lỗi: %r -> sẽ dùng edge-tts", e)
+            self._vieneu_block_until = time.monotonic() + float(tts.get("vieneu_cooldown_seconds", 120))
+
+    async def _synth_vieneu(self, text: str, gender: str, rate: str = "", region: str = "", voice_key: str = "") -> bytes:
+        """VieNeu-TTS (CPU/ONNX) -> PCM s16 mono 48k. Lỗi / quá giờ / liên tục chậm -> trả b'' để lùi về edge-tts."""
+        import numpy as np
+        tts = self.cfg["tts"]
+        if time.monotonic() < self._vieneu_block_until:
+            return b""
+        timeout = float(tts.get("vieneu_timeout_seconds", 5))
+        slow_s = float(tts.get("vieneu_slow_seconds", 3))
+        async with self._vieneu_lock:                      # các câu xếp hàng, mỗi lần chỉ chạy 1 câu
+            if time.monotonic() < self._vieneu_block_until:
+                return b""
+            t0 = time.perf_counter()
+            try:
+                await self._vieneu_ensure_loaded(timeout)
+                voice = self._vieneu_pick_voice(gender, region, voice_key)
+                if not voice:
+                    log.warning("VieNeu không có giọng %s -> dùng edge-tts", gender)
+                    return b""
+                wav, sr = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        self._vieneu_pool, partial(self._vieneu_infer, text, voice, self._rate_to_speed(rate or tts.get("rate", "")))),
+                    timeout)
+            except asyncio.TimeoutError:
+                self._vieneu_trip(f"quá {timeout:.0f}s")
+                return b""
+            except Exception as e:
+                self._vieneu_trip(f"lỗi: {e!r}")
+                return b""
+            took = time.perf_counter() - t0
+            x = np.asarray(wav, dtype=np.float32).reshape(-1)
+            if x.size == 0:
+                return b""
+            if sr != 48000:
+                n = int(round(len(x) * 48000 / sr))
+                x = np.interp(np.arange(n) * (sr / 48000.0), np.arange(len(x)), x)
+            pcm = np.clip(x * 32767.0, -32768, 32767).astype(np.int16).tobytes()
+            log.info("VieNeu: %d ký tự -> %.1fs âm thanh, mất %.1fs", len(text), len(x) / 48000.0, took)
+            # Chậm 2 câu liên tiếp thì nghỉ VieNeu (câu này vẫn dùng, vì đã tạo xong).
+            self._vieneu_slow = self._vieneu_slow + 1 if took > slow_s else 0
+            if self._vieneu_slow >= int(tts.get("vieneu_slow_limit", 2)):
+                self._vieneu_trip(f"chậm liên tục (>{slow_s:.0f}s/câu)")
+            return pcm
+
     async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "",
                     gemini: bool = False, voice_key: str = "", voice_override: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (pitch/rate: chất giọng riêng của từng user; region: dành cho việc chọn giọng theo miền sau này)"""
@@ -436,6 +583,14 @@ class Brain:
         if not text:
             return b""
         tts = self.cfg["tts"]
+        # VieNeu (tự host) khi: provider="vieneu" (mọi câu) hoặc vieneu_first_turn=true và đây là lượt đầu (cờ gemini=True).
+        # Lỗi/chậm -> thử tiếp Gemini (nếu được bật) rồi edge-tts.
+        if tts.get("provider") == "vieneu" or (gemini and tts.get("vieneu_first_turn", False)):
+            pcm = await self._synth_vieneu(text, gender, rate, region, voice_key)
+            if pcm:
+                return pcm
+            log.warning("VieNeu không ra tiếng -> lùi về TTS dự phòng")
+            gemini = gemini and tts.get("gemini_first_turn", False)
         # Gemini khi: provider="gemini" (mọi câu), hoặc người gọi yêu cầu gemini=True (vd lượt nói đầu) và còn ngân sách ngày.
         want_gemini = tts.get("provider") == "gemini" or (gemini and tts.get("gemini_first_turn", False) and self._gemini_budget_take())
         if want_gemini and os.getenv("GEMINI_API_KEY"):

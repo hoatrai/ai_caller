@@ -39,6 +39,13 @@ Trong `config.json` chỉ cần chỉnh:
 - `admin_user_id`: ID WordPress của adminroot (nếu để 0, bot sẽ thử tự tra qua `wp/v2/users?slug=adminroot`).
 - `accounts_file`: mặc định đọc luôn danh sách `accounts` trong `../simulate-test/config.json` (tự loại adminroot).
   Có thể thêm `"gender": "female"|"male"` cho từng account để cố định giọng đọc (chắc chắn nhất; không có thì bot đoán theo tên, log in rõ lý do).
+- **VieNeu-TTS tự host (tuỳ chọn, chạy CPU, không cần key):** `venv/bin/pip install vieneu`, rồi đặt `"tts": {"provider": "vieneu"}`
+  (hoặc giữ `edge` và chỉ bật `"vieneu_first_turn": true` để lời chào đầu dùng VieNeu). Mặc định dùng chế độ `v3nano` (24 kHz, nhẹ nhất).
+  Lần chạy đầu sẽ tải model từ Hugging Face; bot nạp sẵn model lúc khởi động (`warmup`) nên cuộc gọi đầu không phải chờ.
+  Đường lùi: nếu VieNeu lỗi, quá `vieneu_timeout_seconds` (5s), hoặc chậm hơn `vieneu_slow_seconds` (3s) `vieneu_slow_limit` (2) câu liên tiếp
+  thì bot nghỉ VieNeu `vieneu_cooldown_seconds` (120s) và tự dùng edge-tts. Mỗi user có một giọng cố định (theo username, đúng giới tính, ưu tiên cùng vùng miền);
+  muốn tự chọn thì đặt `vieneu_voices_female` / `vieneu_voices_male` (danh sách tên giọng, xem trong log lúc khởi động). Tuỳ chọn thêm: `vieneu_steps` (8 = nhanh hơn, hơi thô),
+  `vieneu_threads`, `vieneu_mode: "v3turbo"` + `vieneu_precision: "int8"`.
 - Giọng đọc tự nhiên hơn: đặt `"tts": {"provider": "gemini"}` (dùng GEMINI_API_KEY, lỗi thì tự lùi về edge-tts; free tier có hạn mức nên nhớ theo dõi).
 - `interval_min_seconds` / `interval_max_seconds`: khoảng cách giữa các cuộc gọi.
 - `quiet_hours`: giờ không gọi (mặc định 00:00–07:00 giờ VN).
