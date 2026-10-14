@@ -1,0 +1,14 @@
+[Unit]
+Description=Nhau AI Caller (bot gọi thoại adminroot)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/ai_caller
+ExecStart=/root/ai_caller/venv/bin/python main.py --config config.json
+User=root
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

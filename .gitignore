@@ -1,0 +1,6 @@
+.env
+config.json
+ai_caller.log
+ai_caller_state.json
+__pycache__/
+venv/

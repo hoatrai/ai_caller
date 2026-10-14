@@ -1,0 +1,40 @@
+{
+  "base_url": "https://spiritwebs.okinawanew.com",
+  "websocket_url": "wss://socket.okinawanew.com/socket/websocket",
+
+  "admin_username": "adminroot",
+  "admin_user_id": 0,
+
+  "accounts_file": "../simulate-test/config.json",
+  "accounts": [],
+
+  "interval_min_seconds": 180,
+  "interval_max_seconds": 600,
+  "same_user_cooldown_minutes": 90,
+  "quiet_hours": {"enabled": true, "start": "00:00", "end": "07:00", "tz": "Asia/Ho_Chi_Minh"},
+
+  "ring_timeout_seconds": 35,
+  "max_call_seconds": 240,
+  "idle_hangup_seconds": 25,
+  "admit_ai_if_asked": true,
+
+  "llm": {
+    "providers": [
+      {"base_url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile", "api_key_env": "GROQ_API_KEY"},
+      {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.0-flash", "api_key_env": "GEMINI_API_KEY"}
+    ],
+    "temperature": 0.9,
+    "max_tokens": 120
+  },
+  "stt": {
+    "provider": "auto",
+    "groq_model": "whisper-large-v3-turbo",
+    "language": "vi"
+  },
+  "tts": {
+    "voice_female": "vi-VN-HoaiMyNeural",
+    "voice_male": "vi-VN-NamMinhNeural",
+    "rate": "+6%"
+  },
+  "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}]
+}
