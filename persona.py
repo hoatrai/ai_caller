@@ -86,6 +86,7 @@ class Persona:
     nick: str = ""
     tts_rate: str = ""
     charm: str = ""
+    facts: str = ""
 
     @property
     def call_name(self) -> str:
@@ -138,6 +139,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         mood=mood,
         tts_rate=tts_rate,
         charm=rng.choice(CHARMS),
+        facts=f"nhóm em đi {rng.randint(2, 4)} người; giờ em muốn hẹn: {rng.choice(['7 giờ tối', '7 rưỡi tối', '8 giờ tối'])}",
         region=region,
         region_style=style,
         goal=goal,
