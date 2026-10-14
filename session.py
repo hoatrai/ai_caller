@@ -40,15 +40,27 @@ async def login_bot(cfg: dict, account: dict) -> dict:
         user_id = data.get("user_id") or data.get("id") or (data.get("data") or {}).get("user_id")
         name = data.get("user_display_name") or data.get("display_name") or ""
         avatar = ""
+        hdr = {"Authorization": f"Bearer {token}"}
+        # Avatar/tên: dùng ĐÚNG route app Flutter đang dùng (spiritwebs/v1/me -> avatar_url,
+        # xem fetchMeSafe trong app_globals.dart), không dùng gravatar mặc định của WP.
         try:
-            me = (await c.get(base + "/wp-json/wp/v2/users/me",
-                              headers={"Authorization": f"Bearer {token}"})).json()
-            user_id = user_id or me.get("id")
-            name = me.get("name") or name
-            avatars = me.get("avatar_urls") or {}
-            avatar = avatars.get("96") or next(iter(avatars.values()), "")
+            r2 = await c.get(base + "/wp-json/spiritwebs/v1/me", headers=hdr)
+            if r2.status_code == 200:
+                me = r2.json()
+                me = me.get("data", me) if isinstance(me.get("data"), dict) else me
+                avatar = str(me.get("avatar_url") or "")
+                user_id = user_id or me.get("id") or me.get("user_id")
+                name = me.get("display_name") or me.get("name") or me.get("username") or name
         except Exception as e:
-            log.debug("users/me lỗi: %s", e)
+            log.debug("spiritwebs/v1/me lỗi: %s", e)
+        if not user_id or not name:
+            try:
+                me = (await c.get(base + "/wp-json/wp/v2/users/me", headers=hdr)).json()
+                user_id = user_id or me.get("id")
+                name = name or me.get("name")
+            except Exception as e:
+                log.debug("users/me lỗi: %s", e)
+        log.info("Bot %s: avatar=%s", account["username"], avatar or "(trống)")
     if not user_id:
         raise RuntimeError(f"không suy ra được user_id cho {account['username']}")
     return {"username": account["username"], "token": token, "user_id": int(user_id),
