@@ -85,6 +85,7 @@ class Persona:
     backstory: str = ""
     nick: str = ""
     tts_rate: str = ""
+    tts_pitch: str = ""      # cao độ giọng riêng của từng user (cố định theo username), vd "+8Hz"
     charm: str = ""
     facts: str = ""
 
@@ -122,12 +123,20 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     gender = guess_gender(username, shown if display_name else "", account.get("gender"))
     nick = ""
     mood = rng.choice(MOODS)
-    if "nhanh" in mood or "vội" in mood:
-        tts_rate = "+12%"
-    elif "chậm" in mood:
-        tts_rate = "-2%"
+    # Mỗi user 1 "chất giọng" riêng cố định theo username (cao độ + tốc độ nền), tâm trạng mỗi cuộc chỉ nhích nhẹ tốc độ.
+    h = int(hashlib.md5(username.encode()).hexdigest(), 16)
+    if gender == "female":
+        pitch_hz = (h % 27) - 14            # -14..+12 Hz
     else:
-        tts_rate = rng.choice(["+4%", "+8%"])
+        pitch_hz = ((h // 27) % 27) - 17    # -17..+9 Hz (nam thiên về trầm)
+    base_rate = ((h // 729) % 11) - 3       # -3..+7 %
+    if "nhanh" in mood or "vội" in mood:
+        base_rate += 6
+    elif "chậm" in mood:
+        base_rate -= 4
+    base_rate = max(-8, min(18, base_rate))
+    tts_rate = f"{base_rate:+d}%"
+    tts_pitch = f"{pitch_hz:+d}Hz"
     if len(words) < 2:   # chỉ 1 từ (username viết liền) -> đặt tên gọi tự nhiên, cố định theo username
         pool = NAMES_F if gender == "female" else NAMES_M
         nick = pool[int(hashlib.md5(username.encode()).hexdigest(), 16) % len(pool)]
@@ -138,6 +147,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         nick=nick,
         mood=mood,
         tts_rate=tts_rate,
+        tts_pitch=tts_pitch,
         charm=rng.choice(CHARMS),
         facts=f"nhóm em đi {rng.randint(2, 4)} người; giờ em muốn hẹn: {rng.choice(['7 giờ tối', '7 rưỡi tối', '8 giờ tối'])}",
         region=region,

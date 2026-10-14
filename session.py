@@ -291,7 +291,8 @@ class CallSession:
         sentences = split_for_speech(text)
         t_say = time.perf_counter()
         first = True
-        tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region)) for s in sentences]
+        tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
+                                                   self.persona.tts_pitch)) for s in sentences]
         try:
             for t in tasks:
                 pcm = await t
