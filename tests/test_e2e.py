@@ -150,7 +150,7 @@ class FakeBrain:
     async def reply(self, system, history):
         return self.replies.pop(0) if self.replies else "ok [CUP_MAY]"
 
-    async def synth(self, text, gender, rate=""):
+    async def synth(self, text, gender, rate="", region=""):
         n = int(48000 * 1.2)
         t = np.arange(n) / 48000
         return (np.sin(2 * math.pi * 440 * t) * 8000).astype(np.int16).tobytes()
