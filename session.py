@@ -111,6 +111,8 @@ class CallSession:
         self._tasks: list[asyncio.Task] = []
         self.turns = 0
         self.started_at = 0.0
+        self._prep: Optional[asyncio.Task] = None
+        self._t_offer = 0.0
 
     # ---------------- vòng đời
     async def run(self) -> dict:
@@ -130,6 +132,10 @@ class CallSession:
             })
             log.info("📞 %s đang gọi adminroot (topic=%s, kịch bản=%s)",
                      self.bot["username"], self.topic, self.persona.scenario_tag)
+            # Chuẩn bị sẵn offer + gom ICE candidate TRONG LÚC đổ chuông (STUN có thể mất tới ~5s),
+            # để lúc adminroot bấm nghe là gửi offer được ngay.
+            self._prep = asyncio.create_task(self._prepare_webrtc())
+            self._tasks.append(self._prep)
 
             try:
                 await asyncio.wait_for(self._wait_accept(), self.cfg["ring_timeout_seconds"])
@@ -142,6 +148,7 @@ class CallSession:
                 return {"outcome": outcome}
 
             log.info("✅ adminroot đã nghe máy -> bắt đầu WebRTC")
+            self._t_accept = time.perf_counter()
             await self._start_webrtc()
             try:
                 await asyncio.wait_for(self.connected.wait(), 20)
@@ -188,6 +195,8 @@ class CallSession:
                 self.end_reason = event
                 self.ended.set()
             elif event == "webrtc_answer":
+                if self._t_offer:
+                    log.info("⏱ nhận answer của app sau %.1fs kể từ lúc gửi offer", time.perf_counter() - self._t_offer)
                 if self.pc and payload.get("sdp"):
                     try:
                         await self.pc.setRemoteDescription(RTCSessionDescription(sdp=payload["sdp"], type="answer"))
@@ -218,7 +227,9 @@ class CallSession:
             log.debug("bỏ qua ICE lỗi: %s", e)
 
     # ---------------- WebRTC
-    async def _start_webrtc(self):
+    async def _prepare_webrtc(self):
+        """Tạo PeerConnection + offer + gom ICE candidate (chạy sẵn khi đang đổ chuông)."""
+        t0 = time.perf_counter()
         servers = [RTCIceServer(**s) for s in self.cfg["ice_servers"]]
         self.pc = RTCPeerConnection(RTCConfiguration(iceServers=servers))
         self.pc.addTrack(self.voice)
@@ -241,7 +252,15 @@ class CallSession:
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
         # aiortc gom đủ ICE candidate vào SDP trước khi setLocalDescription trả về -> không cần trickle.
+        log.info("⏱ gom ICE xong sau %.1fs", time.perf_counter() - t0)
+
+    async def _start_webrtc(self):
+        if self._prep is None:
+            self._prep = asyncio.create_task(self._prepare_webrtc())
+        await self._prep
+        self._t_offer = time.perf_counter()
         await self.room.push("webrtc_offer", {"sdp": self.pc.localDescription.sdp})
+        log.info("⏱ gửi offer sau %.1fs kể từ lúc nghe máy", self._t_offer - getattr(self, "_t_accept", self._t_offer))
 
     # ---------------- nghe
     async def _listen(self, track):

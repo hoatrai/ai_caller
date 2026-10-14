@@ -293,22 +293,31 @@ class Brain:
         return ""
 
     # ------------------------------------------------------------------ TTS
-    async def _synth_gemini(self, text: str, gender: str, rate: str = "") -> bytes:
+    async def _synth_gemini(self, text: str, gender: str, rate: str = "", region: str = "") -> bytes:
         """Gemini TTS (tự nhiên hơn edge-tts, có ngữ điệu/nhịp thở). Bật bằng tts.provider = "gemini". Lỗi -> trả b'' để fallback."""
         import base64
         import numpy as np
         tts = self.cfg["tts"]
         voice = tts.get("gemini_voice_female", "Leda") if gender == "female" else tts.get("gemini_voice_male", "Orus")
         model = tts.get("gemini_model", "gemini-3.1-flash-tts-preview")
+        accent = "miền Bắc (Hà Nội)" if "Bắc" in (region or "") else "miền Nam (Sài Gòn)"
         style = tts.get("gemini_style", "Nói tiếng Việt như người thật đang nói chuyện điện thoại với người quen: tự nhiên, thoải mái, nhịp nói không đều, không đọc diễn cảm kiểu phát thanh viên")
+        # Gemini tự đoán giọng vùng miền từ chữ ('nhé' -> Bắc, 'nè' -> Nam) nên mỗi câu một kiểu; ép cố định accent.
+        style = f"{style}. LUÔN dùng đúng một giọng {accent} ổn định cho mọi câu, kể cả khi câu có từ của miền khác. Chỉ đọc phần sau dấu hai chấm cuối"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         try:
-            r = await self.http.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "")},
-                json={"contents": [{"parts": [{"text": f"{style}: {text}"}]}],
-                      "generationConfig": {"responseModalities": ["AUDIO"],
-                                           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}},
-                timeout=30.0)
+            for attempt in range(2):
+                r = await self.http.post(
+                    url,
+                    headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "")},
+                    json={"contents": [{"parts": [{"text": f"{style}: {text}"}]}],
+                          "generationConfig": {"responseModalities": ["AUDIO"],
+                                               "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}},
+                    timeout=30.0)
+                if r.status_code == 429 and attempt == 0:      # hết hạn mức/phút: chờ chút rồi thử lại 1 lần
+                    await asyncio.sleep(1.5)
+                    continue
+                break
             r.raise_for_status()
             part = r.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
             raw = base64.b64decode(part["data"])
@@ -328,7 +337,7 @@ class Brain:
             return b""
         tts = self.cfg["tts"]
         if tts.get("provider") == "gemini" and os.getenv("GEMINI_API_KEY"):
-            pcm = await self._synth_gemini(text, gender, rate)
+            pcm = await self._synth_gemini(text, gender, rate, region)
             if pcm:
                 return pcm
             log.warning("Gemini TTS lỗi -> dùng edge-tts")
