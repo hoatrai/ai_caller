@@ -114,7 +114,8 @@ class UtteranceDetector:
     WARMUP_FRAMES = 25   # ~0.5s đầu (frame 20ms)
 
     def __init__(self, sample_rate=16000, silence_ms=600, min_speech_ms=300,
-                 max_utt_s=12.0, start_ms=120):
+                 max_utt_s=12.0, start_ms=120, min_threshold=250.0):
+        self.min_threshold = float(min_threshold)   # sàn ngưỡng tiếng nói (trước đây cố định 450 -> bỏ sót giọng nhỏ)
         self.sr = sample_rate
         self.silence_ms = silence_ms
         self.min_speech_ms = min_speech_ms
@@ -134,7 +135,7 @@ class UtteranceDetector:
         self.last_info: dict = {}
 
     def _threshold(self):
-        return max(self.noise * 2.5, 450.0)
+        return max(self.noise * 2.5, self.min_threshold)
 
     @staticmethod
     def _rms(samples):

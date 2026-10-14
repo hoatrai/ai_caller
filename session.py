@@ -275,7 +275,8 @@ class CallSession:
     # ---------------- nghe
     async def _listen(self, track):
         resample = FrameResampler16k()
-        det = UtteranceDetector(silence_ms=int(self.cfg.get("vad_silence_ms", 600)))
+        det = UtteranceDetector(silence_ms=int(self.cfg.get("vad_silence_ms", 600)),
+                                min_threshold=float(self.cfg.get("vad_min_threshold", 250)))
         recent = collections.deque(maxlen=25)      # ~0.5s gần nhất (mỗi frame 20ms)
         loud_ms = 0.0
         while not self.ended.is_set():
@@ -326,7 +327,7 @@ class CallSession:
         # Gemini TTS không stream: nguyên đoạn dài = chờ lâu. Tách câu để câu đầu (ngắn) ra tiếng sớm,
         # các câu sau tổng hợp song song trong lúc câu đầu đang phát. Đặt tts.gemini_split=false để về cách cũ.
         tts_cfg = self.cfg["tts"]
-        one_chunk = tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", True)
+        one_chunk = tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", False)
         sentences = [text] if one_chunk else split_for_speech(text)
         t_say = time.perf_counter()
         first = True

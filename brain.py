@@ -183,6 +183,7 @@ class Brain:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
+        self._gemini_block_until = 0.0     # sau khi Gemini lỗi (429/treo) thì tạm bỏ qua nó, dùng edge-tts ngay
         self._llm_fail = 0
 
     async def aclose(self):
@@ -305,19 +306,23 @@ class Brain:
         # Gemini tự đoán giọng vùng miền từ chữ ('nhé' -> Bắc, 'nè' -> Nam) nên mỗi câu một kiểu; ép cố định accent.
         style = f"{style}. LUÔN dùng đúng một giọng {accent} ổn định cho mọi câu, kể cả khi câu có từ của miền khác. Chỉ đọc phần sau dấu hai chấm cuối"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        import time as _time
+        # Đang "nghỉ" sau lỗi gần đây -> không chờ Gemini nữa, trả b'' để dùng edge-tts ngay.
+        if _time.monotonic() < self._gemini_block_until:
+            return b""
+        cooldown = float(tts.get("gemini_cooldown_seconds", 45))
         try:
-            for attempt in range(2):
-                r = await self.http.post(
-                    url,
-                    headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "")},
-                    json={"contents": [{"parts": [{"text": f"{style}: {text}"}]}],
-                          "generationConfig": {"responseModalities": ["AUDIO"],
-                                               "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}},
-                    timeout=30.0)
-                if r.status_code == 429 and attempt == 0:      # hết hạn mức/phút: chờ chút rồi thử lại 1 lần
-                    await asyncio.sleep(1.5)
-                    continue
-                break
+            # Timeout ngắn (mặc định 6s, trước đây 30s): Gemini treo thì chuyển edge sớm, không để người nghe im 25s.
+            r = await self.http.post(
+                url,
+                headers={"x-goog-api-key": os.getenv("GEMINI_API_KEY", "")},
+                json={"contents": [{"parts": [{"text": f"{style}: {text}"}]}],
+                      "generationConfig": {"responseModalities": ["AUDIO"],
+                                           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}},
+                timeout=float(tts.get("gemini_timeout_seconds", 6)))
+            if r.status_code == 429:
+                # Hết hạn mức: thử lại sau 1,5s không giúp được gì -> nghỉ một lúc.
+                self._gemini_block_until = _time.monotonic() + cooldown
             r.raise_for_status()
             part = r.json()["candidates"][0]["content"]["parts"][0]["inlineData"]
             raw = base64.b64decode(part["data"])
@@ -327,7 +332,8 @@ class Brain:
             up = np.interp(np.arange(len(x) * 2) / 2.0, np.arange(len(x)), x)
             return np.clip(up, -32768, 32767).astype(np.int16).tobytes()
         except Exception as e:
-            log.warning("Gemini TTS lỗi: %s", e)
+            self._gemini_block_until = max(self._gemini_block_until, _time.monotonic() + cooldown)
+            log.warning("Gemini TTS lỗi: %r -> nghỉ Gemini %.0fs, dùng edge-tts", e, cooldown)
             return b""
 
     async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "") -> bytes:
