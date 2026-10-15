@@ -160,7 +160,8 @@ class CallSession:
             w_conn = asyncio.create_task(self.connected.wait())
             w_end = asyncio.create_task(self.ended.wait())
             try:
-                await asyncio.wait({w_conn, w_end}, timeout=20, return_when=asyncio.FIRST_COMPLETED)
+                await asyncio.wait({w_conn, w_end}, timeout=float(self.cfg.get("webrtc_connect_timeout_seconds", 45)),
+                                   return_when=asyncio.FIRST_COMPLETED)   # app mở nguội (bị tắt hẳn) cần nhiều giây mới nối được
             finally:
                 for t in (w_conn, w_end):
                     t.cancel()
