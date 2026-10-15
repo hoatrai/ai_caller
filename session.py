@@ -204,7 +204,7 @@ class CallSession:
         while True:
             event, payload = await self.room.events.get()
             if not event.startswith("webrtc_"):
-                log.info("📩 sự kiện từ Phoenix: %s", event)
+                log.info("📩 sự kiện từ Phoenix: %s %s", event, str(payload)[:300])    # kèm nội dung để biết ai gửi (vd call_reject)
             if event == "call_accept":
                 self.accepted.set()
             elif event in ("call_reject", "call_end", "call_timeout", "phx_close"):
