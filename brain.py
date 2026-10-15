@@ -478,12 +478,18 @@ class Brain:
 
     # ------------------------------------------------------------------ Fish Audio (API)
     def _fish_pick_voice(self, gender: str, voice_key: str) -> str:
-        """Mỗi user một giọng cố định (hash username) trong danh sách reference_id của Fish Audio theo giới tính."""
+        """Mỗi user một giọng cố định (hash username). Có danh sách ưu tiên (fish_voices_<gender>_top, vd giọng dễ thương):
+        khoảng fish_top_ratio (mặc định 0.8) số user được xếp vào danh sách này, số còn lại dùng pool chung."""
         tts = self.cfg["tts"]
-        pool = [v for v in (tts.get("fish_voices_female" if gender == "female" else "fish_voices_male") or []) if v]
+        g = "female" if gender == "female" else "male"
+        pool = [v for v in (tts.get(f"fish_voices_{g}") or []) if v]
+        top = [v for v in (tts.get(f"fish_voices_{g}_top") or []) if v]
+        h = int(hashlib.md5((voice_key or "x").encode()).hexdigest(), 16)
+        if top and (h % 100) < int(float(tts.get("fish_top_ratio", 0.8)) * 100):
+            return top[(h // 100) % len(top)]
         if not pool:
-            return ""
-        return pool[int(hashlib.md5((voice_key or "x").encode()).hexdigest(), 16) % len(pool)]
+            return top[h % len(top)] if top else ""
+        return pool[(h // 100) % len(pool)]
 
     def _fish_usable(self, gender: str, voice_key: str) -> bool:
         return bool(os.getenv("FISH_API_KEY")) and time.monotonic() >= self._fish_block_until \
