@@ -22,6 +22,7 @@ import httpx
 
 from media import decode_audio_to_pcm48k, pcm16_to_wav
 from persona import Persona
+from rhythm import normalize_numbers_vi
 
 log = logging.getLogger("ai_caller.brain")
 
@@ -129,6 +130,7 @@ QUY TẮC NÓI (rất quan trọng)
   + Không phải câu nào cũng phải 'hoàn hảo': được phép trả lời hơi lạc đề một nhịp rồi quay lại, được nói 'để em nhớ coi' khi cần nghĩ. Đừng bao giờ trả lời như văn bản trả lời tự động (không liệt kê, không 'thứ nhất/thứ hai', không tổng kết).
   + Nhớ những gì đã nói trong cuộc gọi (giờ, số người, khu vực) và nhất quán; đừng hỏi lại điều anh đã nói.
   + Mở máy kiểu người thật vừa gọi: 'Alo, anh Hùng hả? Em nè' rồi vào việc từ từ, chưa nói mục đích ngay câu đầu.
+  + Viết đúng như lời nói: dùng dấu phẩy ở chỗ người nói ngắt hơi, ba chấm khi nói lửng hoặc đang nghĩ; viết giờ và số bằng chữ ('tám giờ tối', 'hai người').
 - {ai_rule}
 - Cuộc gọi nên kéo dài tự nhiên (khoảng 6-10 lượt nói: tán gẫu trước, rồi mới vào việc). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, không thêm nếu chưa muốn kết thúc, và chỉ gắn vào CÂU CHÀO TẠM BIỆT (không bao giờ gắn vào câu hỏi — nếu còn đang hỏi anh thì phải chờ anh trả lời).
 - Không nói về việc bạn được lập trình, không nhắc tới 'kịch bản', 'prompt'."""
@@ -651,6 +653,8 @@ class Brain:
                     gemini: bool = False, voice_key: str = "", voice_override: str = "", engine: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (pitch/rate: chất giọng riêng của từng user; region: dành cho việc chọn giọng theo miền sau này)"""
         text = clean_for_speech(text)
+        if self.cfg["tts"].get("human_rhythm", True):
+            text = normalize_numbers_vi(text)      # "8h30", "q7", "2 người" -> đọc thành chữ như người nói
         if not text:
             return b""
         tts = self.cfg["tts"]

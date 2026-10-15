@@ -40,7 +40,8 @@ DEFAULTS = {
     },
     "stt": {"provider": "auto", "groq_model": "whisper-large-v3", "language": "vi",
             "prompt": "Cuộc gọi điện thoại tiếng Việt giữa hai người quen. Alô, anh khỏe không? Dạo này anh sao rồi? Em gọi hỏi anh tí, tối nay anh rảnh không, đi nhậu quán nướng hen. Ừ được, vậy hẹn tám giờ tối nha. Kèo, slot, karaoke, quận 1, quận 7, Bình Thạnh, Thủ Đức."},
-    "tts": {"provider": "edge", "voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%", "pitch": "+0Hz"},
+    "tts": {"provider": "edge", "voice_female": "vi-VN-HoaiMyNeural", "voice_male": "vi-VN-NamMinhNeural", "rate": "+6%", "pitch": "+0Hz",
+            "human_rhythm": True, "pause_scale": 1.0, "filler": True, "filler_after_seconds": 1.3},
     "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}],
 }
 

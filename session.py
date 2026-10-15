@@ -21,6 +21,7 @@ from brain import (HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for
                    is_farewell, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
 from persona import Persona
+from rhythm import jitter_rate, pause_after_ms, polish_chunk, silence_pcm
 from signaling import PhoenixRoom
 
 log = logging.getLogger("ai_caller.session")
@@ -115,6 +116,9 @@ class CallSession:
         self._t_offer = 0.0
         self._engine_task: Optional[asyncio.Task] = None
         self.engine = ""        # engine TTS chốt cho cả cuộc gọi ("" = cách cũ)
+        self._fillers: list[bytes] = []          # tiếng đệm "ờm...", "à..." tổng hợp sẵn (che khoảng chờ LLM)
+        self._filler_task: Optional[asyncio.Task] = None
+        self._last_filler = -1
 
     # ---------------- vòng đời
     async def run(self) -> dict:
@@ -342,29 +346,88 @@ class CallSession:
         one_chunk = (tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", False)) \
             or (gemini and tts_cfg.get("gemini_first_turn", False) and tts_cfg.get("provider") != "vieneu")  # lượt đầu dùng Gemini: 1 request cho cả lượt (VieNeu thì vẫn tách câu để câu đầu ra tiếng sớm)
         sentences = [text] if one_chunk else split_for_speech(text)
+        human = bool(tts_cfg.get("human_rhythm", True))
+        scale = float(tts_cfg.get("pause_scale", 1.0))
+        base_rate = self.persona.tts_rate or tts_cfg.get("rate", "")
+        rates = [jitter_rate(base_rate, s_) if human else self.persona.tts_rate for s_ in sentences]
         t_say = time.perf_counter()
         first = True
-        tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
+        tasks = [asyncio.create_task(self.brain.synth(s_, self.persona.gender, rates[i], self.persona.region,
                                                    self.persona.tts_pitch, gemini=gemini,
                                                    voice_key=self.persona.username,
                                                    voice_override=self.persona.gemini_voice,
-                                                   engine=self.engine)) for s in sentences]
+                                                   engine=self.engine)) for i, s_ in enumerate(sentences)]
         try:
-            for t in tasks:
+            for i, t in enumerate(tasks):
                 pcm = await t
                 if first:
                     first = False
                     log.info("⏱ TTS câu đầu sau %.1fs", time.perf_counter() - t_say)
                 if self._interrupted or self.ended.is_set():
                     break
+                if human:
+                    # Nhịp người thật: cắt khoảng lặng thừa của TTS, vuốt đầu/cuối, rồi tự ngắt hơi theo dấu câu
+                    # (phẩy ngắn, chấm/hỏi dài hơn, ba chấm lâu nhất) thay vì nối sát rạt hoặc hở ngẫu nhiên.
+                    if pcm:
+                        pcm = polish_chunk(pcm)
+                        if i < len(tasks) - 1:
+                            pcm += silence_pcm(pause_after_ms(sentences[i], scale))
+                    self.voice.speak(pcm)       # xếp hàng liền, không chờ phát xong từng đoạn
+                    continue
                 self.voice.speak(pcm)
                 # Chờ câu này phát xong rồi mới tới câu sau (để chen ngang có tác dụng giữa các câu).
                 await self.voice.wait_done()
                 if self._interrupted:
                     break
+            if human and not self._interrupted:
+                await self.voice.wait_done()
         finally:
             for t in tasks:
                 t.cancel()
+
+    # ---------------- tiếng đệm che khoảng chờ
+    def _start_filler_prewarm(self):
+        """Sau lời chào đầu tiên, tổng hợp sẵn vài tiếng đệm cùng giọng (trong lúc anh đang nói, không tranh với lượt đáp)."""
+        tts_cfg = self.cfg["tts"]
+        if self._filler_task or not tts_cfg.get("human_rhythm", True) or not tts_cfg.get("filler", True):
+            return
+        self._filler_task = asyncio.create_task(self._prewarm_fillers())
+        self._tasks.append(self._filler_task)
+
+    async def _prewarm_fillers(self):
+        tts_cfg = self.cfg["tts"]
+        texts = tts_cfg.get("filler_texts") or ["Ờm...", "À...", "Ừm..."]
+        for tx in texts:
+            if self.ended.is_set():
+                return
+            try:
+                pcm = await self.brain.synth(tx, self.persona.gender, self.persona.tts_rate, self.persona.region,
+                                             self.persona.tts_pitch, voice_key=self.persona.username,
+                                             voice_override=self.persona.gemini_voice, engine=self.engine)
+            except Exception as e:
+                log.debug("filler lỗi: %s", e)
+                continue
+            if pcm:
+                self._fillers.append(polish_chunk(pcm) + silence_pcm(90))
+        log.info("Đã chuẩn bị %d tiếng đệm", len(self._fillers))
+
+    async def _reply_with_filler(self, system: str, history: list[dict]) -> str:
+        """Gọi LLM; nếu quá lâu chưa có câu trả lời thì nói 1 tiếng đệm ('ờm...') như người đang nghĩ, khỏi im bặt."""
+        task = asyncio.create_task(self.brain.reply(system, history))
+        try:
+            tts_cfg = self.cfg["tts"]
+            if self.turns >= 1 and self._fillers and tts_cfg.get("human_rhythm", True) and tts_cfg.get("filler", True):
+                done, _ = await asyncio.wait({task}, timeout=float(tts_cfg.get("filler_after_seconds", 1.3)))
+                if (not done and not self.ended.is_set() and not self.voice.is_speaking
+                        and random.random() < 0.8):
+                    choices = [i for i in range(len(self._fillers)) if i != self._last_filler] or [0]
+                    self._last_filler = random.choice(choices)
+                    self.voice.speak(self._fillers[self._last_filler])
+                    log.info("💭 tiếng đệm #%d (LLM chưa xong)", self._last_filler)
+            return await task
+        except BaseException:
+            task.cancel()
+            raise
 
     async def _next_utterance(self, timeout: float):
         try:
@@ -398,7 +461,7 @@ class CallSession:
                 break
 
             t_llm = time.perf_counter()
-            reply = await self.brain.reply(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag), history)
+            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag), history)
             log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"
@@ -421,6 +484,7 @@ class CallSession:
             self.turns += 1
             log.info("🤖 %s: %s", self.persona.call_name, spoken)
             await self.say(spoken, gemini=(self.turns == 1))      # lượt nói đầu của bot = lời chào -> Gemini
+            self._start_filler_prewarm()      # chuẩn bị tiếng đệm trong lúc chờ anh nói
             if hangup:
                 reason = "bot_hangup_tag"
                 await asyncio.sleep(1.2)      # chờ đuôi lời chào kịp tới điện thoại rồi mới cúp, khỏi cụt chữ
