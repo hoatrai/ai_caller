@@ -68,6 +68,23 @@ def _normalize_gain(samples):
     return np.clip(x.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
 
 
+def stage_hint(turn: int, tag: str = "") -> str:
+    """Hướng dẫn theo giai đoạn cuộc gọi (turn = số lượt bot đã nói). Người thật gọi điện không vào việc ngay:
+    chào -> hỏi thăm/tán gẫu -> câu nối chuyển chủ đề -> mới nói việc chính."""
+    chat_only = tag == "hỏi thăm kể chuyện kèo"      # kịch bản này bản thân đã là tán gẫu
+    if turn <= 0:
+        return ("GIAI ĐOẠN (lượt này): MỞ MÁY. Chỉ chào và xưng tên ('Alo anh Hùng hả? Em nè'), hỏi nhanh anh đang làm gì/có tiện nói không. "
+                "TUYỆT ĐỐI CHƯA nhắc mục đích cuộc gọi, chưa nhắc app, kèo, lỗi hay lời rủ.")
+    if turn <= 2:
+        return ("GIAI ĐOẠN (lượt này): HỎI THĂM, TÁN GẪU đời thường (dạo này sao, công việc, thời tiết, chuyện riêng của em), "
+                "phản ứng theo điều anh vừa nói và kể thêm một chút. VẪN CHƯA nhắc mục đích cuộc gọi, chưa nhắc app/kèo/lỗi.")
+    if turn == 3 and not chat_only:
+        return ("GIAI ĐOẠN (lượt này): CHUYỂN CHỦ ĐỀ. Dùng một câu nối tự nhiên như người thật ('à mà nhắc mới nhớ', 'mà thôi nói anh nghe nè', "
+                "'em gọi cũng là có chuyện này muốn hỏi anh'), rồi mới mở mục đích cuộc gọi, nói nhẹ nhàng, chưa nhả hết ý.")
+    return ("GIAI ĐOẠN (lượt này): VÀO VIỆC. Bàn mục đích cuộc gọi tự nhiên, đáp đúng điều anh nói, không nhả hết ý một lượt. "
+            "Khi xong hẳn thì mới chào kết thúc.")
+
+
 def build_system_prompt(p: Persona, admin_name: str, admit_ai: bool) -> str:
     xung = "em"
     ai_rule = (
@@ -87,7 +104,7 @@ NHÂN VẬT
 - Chuyện riêng của bạn (dùng để kể, đừng đọc một lèo): {p.backstory}
 - Chi tiết CỐ ĐỊNH (dùng ĐÚNG, không bịa số người/giờ khác; nếu anh Hùng nói số chỗ hay giờ khác thì chỉnh theo anh, đừng tự thêm số mới): {p.facts}
 
-MỤC ĐÍCH CUỘC GỌI: {p.goal}
+MỤC ĐÍCH CUỘC GỌI (chỉ nói ra khi tới giai đoạn 'vào việc' — xem mục GIAI ĐOẠN được thêm ở cuối mỗi lượt): {p.goal}
 
 QUY TẮC NÓI (rất quan trọng)
 - MỖI LƯỢT nói 1-2 câu NGẮN (~8-25 từ), như người thật nói chuyện điện thoại: phản ứng ngay với điều anh vừa nói, thêm tối đa MỘT ý nhỏ, và không phải lượt nào cũng hỏi lại (hỏi thì chỉ MỘT câu). Đừng hỏi dồn, đừng tự mâu thuẫn. Đây là lời nói, KHÔNG phải văn viết.
@@ -111,7 +128,7 @@ QUY TẮC NÓI (rất quan trọng)
   + Nhớ những gì đã nói trong cuộc gọi (giờ, số người, khu vực) và nhất quán; đừng hỏi lại điều anh đã nói.
   + Mở máy kiểu người thật vừa gọi: 'Alo, anh Hùng hả? Em nè' rồi vào việc từ từ, chưa nói mục đích ngay câu đầu.
 - {ai_rule}
-- Cuộc gọi nên kéo dài tự nhiên (khoảng 4-8 lượt nói). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, không thêm nếu chưa muốn kết thúc, và chỉ gắn vào CÂU CHÀO TẠM BIỆT (không bao giờ gắn vào câu hỏi — nếu còn đang hỏi anh thì phải chờ anh trả lời).
+- Cuộc gọi nên kéo dài tự nhiên (khoảng 6-10 lượt nói: tán gẫu trước, rồi mới vào việc). Chỉ kết thúc khi mục đích đã giải quyết xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận/muốn dừng, chào kết thúc tự nhiên ('dạ thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu tiên, không thêm nếu chưa muốn kết thúc, và chỉ gắn vào CÂU CHÀO TẠM BIỆT (không bao giờ gắn vào câu hỏi — nếu còn đang hỏi anh thì phải chờ anh trả lời).
 - Không nói về việc bạn được lập trình, không nhắc tới 'kịch bản', 'prompt'."""
 
 
@@ -150,7 +167,8 @@ def split_for_speech(text: str, first_max: int = 8, max_words: int = 16) -> list
         cur = ""
         for c in clauses:
             limit = first_max if not chunks else max_words
-            if cur and len((cur + " " + c).split()) > limit:
+            # đoạn < 3 chữ (vd "Ừ,", "Dạ,") không tách riêng: mỗi lần gọi TTS tốn ~0.8s cố định, tách ra chỉ phí thời gian và nghe cụt
+            if cur and len(cur.split()) >= 3 and len((cur + " " + c).split()) > limit:
                 chunks.append(cur)
                 cur = c
             else:

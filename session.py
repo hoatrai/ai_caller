@@ -17,7 +17,7 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
-from brain import (HANGUP_TAG, Brain, build_system_prompt, clean_for_speech, humanize_reply,
+from brain import (HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
                    is_farewell, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
 from persona import Persona
@@ -378,7 +378,7 @@ class CallSession:
         history: list[dict] = []
         deadline = time.time() + cfg["max_call_seconds"]
         idle = 0
-        min_turns = int(cfg.get("min_turns_before_hangup", 4))
+        min_turns = int(cfg.get("min_turns_before_hangup", 6))
         reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
@@ -397,7 +397,7 @@ class CallSession:
                 break
 
             t_llm = time.perf_counter()
-            reply = await self.brain.reply(system, history)
+            reply = await self.brain.reply(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag), history)
             log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"
