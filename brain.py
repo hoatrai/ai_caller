@@ -247,7 +247,8 @@ def strip_farewell(text: str) -> str:
 
 # Giọng Gemini có sẵn (mỗi user chọn cố định 1 giọng theo username). Ghi đè bằng tts.gemini_voices_female/male
 # trong config, hoặc "gemini_voice" trong từng account. Nghe thử từng giọng trước khi dùng vì chất lượng tiếng Việt khác nhau.
-GEMINI_VOICES_F = ["Leda", "Kore", "Aoede", "Zephyr", "Sulafat", "Despina"]
+GEMINI_VOICES_F = ["Leda", "Kore", "Aoede", "Zephyr", "Sulafat", "Despina",
+                   "Callirrhoe", "Autonoe", "Erinome", "Laomedeia", "Achernar", "Gacrux", "Pulcherrima", "Vindemiatrix"]
 GEMINI_VOICES_M = ["Orus", "Puck", "Charon", "Fenrir", "Algieba", "Iapetus"]
 
 
@@ -269,6 +270,7 @@ class Brain:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
+        self._fish_block_until = 0.0       # Fish Audio lỗi/hết hạn mức -> nghỉ một lúc, dùng VieNeu/edge
         self._gemini_block_until = 0.0     # sau khi Gemini lỗi (429/treo) thì tạm bỏ qua nó, dùng edge-tts ngay
         self._llm_fail = 0
         self._llm_block: dict[str, float] = {}   # model -> monotonic time; bị 429 thì xếp xuống cuối hàng một lúc
@@ -474,10 +476,72 @@ class Brain:
         log.info("Gemini TTS: dùng lượt %d/%d của hôm nay", data["count"], limit)
         return True
 
+    # ------------------------------------------------------------------ Fish Audio (API)
+    def _fish_pick_voice(self, gender: str, voice_key: str) -> str:
+        """Mỗi user một giọng cố định (hash username) trong danh sách reference_id của Fish Audio theo giới tính."""
+        tts = self.cfg["tts"]
+        pool = [v for v in (tts.get("fish_voices_female" if gender == "female" else "fish_voices_male") or []) if v]
+        if not pool:
+            return ""
+        return pool[int(hashlib.md5((voice_key or "x").encode()).hexdigest(), 16) % len(pool)]
+
+    def _fish_usable(self, gender: str, voice_key: str) -> bool:
+        return bool(os.getenv("FISH_API_KEY")) and time.monotonic() >= self._fish_block_until \
+            and bool(self._fish_pick_voice(gender, voice_key))
+
+    async def _synth_fish(self, text: str, gender: str, rate: str = "", voice_key: str = "") -> bytes:
+        """Fish Audio TTS (model s2.1-pro-free miễn phí) -> PCM s16 mono 48k. Lỗi/hết hạn mức -> b'' để lùi về VieNeu/edge."""
+        import numpy as np
+        tts = self.cfg["tts"]
+        key = os.getenv("FISH_API_KEY", "")
+        voice = self._fish_pick_voice(gender, voice_key)
+        if not key or not voice or time.monotonic() < self._fish_block_until:
+            return b""
+        cooldown = float(tts.get("fish_cooldown_seconds", 60))
+        body = {"text": text, "reference_id": voice, "format": "pcm", "sample_rate": 24000,
+                "latency": tts.get("fish_latency", "balanced"),
+                "temperature": float(tts.get("fish_temperature", 0.7)),
+                "prosody": {"speed": self._rate_to_speed(rate or tts.get("rate", "")), "volume": 0}}
+        t0 = time.perf_counter()
+        try:
+            r = await self.http.post(
+                "https://api.fish.audio/v1/tts",
+                headers={"Authorization": f"Bearer {key}", "model": tts.get("fish_model", "s2.1-pro-free")},
+                json=body, timeout=float(tts.get("fish_timeout_seconds", 8)))
+            if r.status_code in (401, 402, 429, 503):
+                self._fish_block_until = time.monotonic() + cooldown
+                log.warning("Fish Audio HTTP %d (%s) -> nghỉ Fish %.0fs", r.status_code, r.text[:160], cooldown)
+                return b""
+            r.raise_for_status()
+            raw = r.content
+            if raw[:4] == b"RIFF":
+                return await asyncio.get_running_loop().run_in_executor(None, decode_audio_to_pcm48k, raw)
+            x = np.frombuffer(raw[: len(raw) // 2 * 2], dtype=np.int16).astype(np.float32)     # PCM s16le mono 24 kHz
+            if x.size == 0:
+                return b""
+            up = np.interp(np.arange(len(x) * 2) / 2.0, np.arange(len(x)), x)
+            log.info("Fish Audio: %d ký tự -> %.1fs âm thanh, mất %.1fs", len(text), len(x) / 24000.0, time.perf_counter() - t0)
+            return np.clip(up, -32768, 32767).astype(np.int16).tobytes()
+        except Exception as e:
+            self._fish_block_until = time.monotonic() + cooldown
+            log.warning("Fish Audio lỗi: %r -> nghỉ Fish %.0fs", e, cooldown)
+            return b""
+
+    async def _synth_fish_or_fallback(self, text: str, gender: str, rate: str, region: str, pitch: str, voice_key: str) -> bytes:
+        pcm = await self._synth_fish(text, gender, rate, voice_key)
+        if pcm:
+            return pcm
+        if self.cfg["tts"].get("fish_fallback", "vieneu") == "vieneu":
+            pcm = await self._synth_vieneu(text, gender, rate, region, voice_key)
+            if pcm:
+                return pcm
+        return await self._synth_edge(text, gender, rate, pitch)
+
     # ------------------------------------------------------------------ VieNeu-TTS (tự host)
     def _vieneu_enabled(self) -> bool:
         tts = self.cfg["tts"]
-        return tts.get("provider") == "vieneu" or bool(tts.get("vieneu_first_turn", False))
+        fish_fb = tts.get("provider") == "fish" and tts.get("fish_fallback", "vieneu") == "vieneu"
+        return tts.get("provider") == "vieneu" or fish_fb or bool(tts.get("vieneu_first_turn", False))
 
     def _vieneu_load(self):
         """Chạy trong thread: nạp model (lần đầu sẽ tải từ Hugging Face) và dựng danh sách giọng theo giới tính/vùng."""
@@ -628,7 +692,18 @@ class Brain:
         """Chốt engine TTS cho CẢ cuộc gọi (gọi lúc đang đổ chuông, nên không tốn thời gian của khách).
         "" = giữ hành vi cũ (provider không phải vieneu); "vieneu" = VieNeu đủ nhanh; "edge" = VieNeu chưa sẵn sàng/quá chậm."""
         tts = self.cfg["tts"]
-        if tts.get("provider") != "vieneu":
+        if tts.get("provider") == "fish":
+            if self._fish_usable(gender, voice_key):
+                log.info("TTS chốt: fish (giọng %s)", self._fish_pick_voice(gender, voice_key))
+                return "fish"
+            if not os.getenv("FISH_API_KEY"):
+                log.warning("Thiếu FISH_API_KEY trong .env -> không dùng được Fish Audio")
+            elif not self._fish_pick_voice(gender, voice_key):
+                log.warning("Chưa có fish_voices_%s trong config -> không dùng được Fish Audio", gender)
+            if tts.get("fish_fallback", "vieneu") != "vieneu":
+                return "edge"
+            # Fish không dùng được: cả cuộc gọi dùng VieNeu (đi tiếp xuống kiểm tra tốc độ bên dưới)
+        elif tts.get("provider") != "vieneu":
             return ""
         limit = float(tts.get("vieneu_probe_max_seconds", 4.0))
         try:
@@ -658,6 +733,8 @@ class Brain:
         if not text:
             return b""
         tts = self.cfg["tts"]
+        if engine == "fish" or (not engine and tts.get("provider") == "fish"):
+            return await self._synth_fish_or_fallback(text, gender, rate, region, pitch, voice_key)
         if engine == "vieneu":          # đã chốt cho cả cuộc gọi: không lùi sang engine khác
             return await self._synth_vieneu(text, gender, rate, region, voice_key, locked=True)
         if engine == "edge":
