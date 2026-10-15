@@ -455,8 +455,7 @@ class Brain:
         if mode == "v3nano":
             if tts.get("vieneu_threads"):
                 kw["threads"] = int(tts["vieneu_threads"])
-            if tts.get("vieneu_steps"):
-                kw["steps"] = int(tts["vieneu_steps"])        # 8 = nhanh hơn, hơi thô; mặc định của thư viện là 16
+            kw["steps"] = int(tts.get("vieneu_steps", 8))     # 8 = nhanh ~2x, hơi thô; thư viện mặc định 16
         elif mode == "v3turbo" and tts.get("vieneu_precision"):
             kw["precision"] = str(tts["vieneu_precision"])     # "int8" nhanh hơn nhưng cần CPU có VNNI
         eng = Vieneu(mode=mode, **kw)
@@ -485,7 +484,12 @@ class Brain:
             cand = self._vieneu_voices.get("female" if fem else "male", [])
             want = "Bắc" if "Bắc" in (region or "") else "Nam"
             same = [n for n, r in cand if r == want]
-            pool = same or [n for n, _ in cand]
+            # v3nano chỉ có 1 giọng nữ + 1 giọng nam vùng Nam -> lọc theo vùng làm MỌI user ra cùng 1 giọng.
+            # Chỉ giữ lọc vùng khi còn đủ giọng cùng vùng (vieneu_min_pool, mặc định 3), không thì xoay vòng cả kho giọng.
+            if len(same) >= int(tts.get("vieneu_min_pool", 3)):
+                pool = same
+            else:
+                pool = [n for n, _ in cand]
         if not pool:
             return None
         return pool[int(hashlib.md5((voice_key or "x").encode()).hexdigest(), 16) % len(pool)]
@@ -494,6 +498,8 @@ class Brain:
         kw = {"voice": voice}
         if self.cfg["tts"].get("vieneu_mode", "v3nano") == "v3nano":
             kw["speed"] = speed
+            if int(self.cfg["tts"].get("vieneu_steps", 8)) <= 8:
+                kw["sway"] = -1.0          # đi cặp với steps=8 theo khuyến nghị của thư viện
         return self._vieneu.infer(text, **kw), int(self._vieneu.sample_rate)
 
     @staticmethod
@@ -533,16 +539,18 @@ class Brain:
             log.warning("VieNeu warmup lỗi: %r -> sẽ dùng edge-tts", e)
             self._vieneu_block_until = time.monotonic() + float(tts.get("vieneu_cooldown_seconds", 120))
 
-    async def _synth_vieneu(self, text: str, gender: str, rate: str = "", region: str = "", voice_key: str = "") -> bytes:
+    async def _synth_vieneu(self, text: str, gender: str, rate: str = "", region: str = "", voice_key: str = "",
+                            locked: bool = False) -> bytes:
         """VieNeu-TTS (CPU/ONNX) -> PCM s16 mono 48k. Lỗi / quá giờ / liên tục chậm -> trả b'' để lùi về edge-tts."""
         import numpy as np
         tts = self.cfg["tts"]
-        if time.monotonic() < self._vieneu_block_until:
+        if not locked and time.monotonic() < self._vieneu_block_until:
             return b""
-        timeout = float(tts.get("vieneu_timeout_seconds", 5))
+        # locked = cuộc gọi đã chốt dùng VieNeu từ đầu: không "nghỉ"/không lùi sang engine khác giữa chừng (tránh đổi giọng).
+        timeout = float(tts.get("vieneu_locked_timeout_seconds", 30)) if locked else float(tts.get("vieneu_timeout_seconds", 5))
         slow_s = float(tts.get("vieneu_slow_seconds", 3))
         async with self._vieneu_lock:                      # các câu xếp hàng, mỗi lần chỉ chạy 1 câu
-            if time.monotonic() < self._vieneu_block_until:
+            if not locked and time.monotonic() < self._vieneu_block_until:
                 return b""
             t0 = time.perf_counter()
             try:
@@ -556,10 +564,16 @@ class Brain:
                         self._vieneu_pool, partial(self._vieneu_infer, text, voice, self._rate_to_speed(rate or tts.get("rate", "")))),
                     timeout)
             except asyncio.TimeoutError:
-                self._vieneu_trip(f"quá {timeout:.0f}s")
+                if locked:
+                    log.warning("VieNeu quá %.0fs cho 1 câu -> bỏ câu này (giữ nguyên giọng)", timeout)
+                else:
+                    self._vieneu_trip(f"quá {timeout:.0f}s")
                 return b""
             except Exception as e:
-                self._vieneu_trip(f"lỗi: {e!r}")
+                if locked:
+                    log.warning("VieNeu lỗi %r -> bỏ câu này (giữ nguyên giọng)", e)
+                else:
+                    self._vieneu_trip(f"lỗi: {e!r}")
                 return b""
             took = time.perf_counter() - t0
             x = np.asarray(wav, dtype=np.float32).reshape(-1)
@@ -573,17 +587,46 @@ class Brain:
             # Chậm 2 câu liên tiếp thì nghỉ VieNeu (câu này vẫn dùng, vì đã tạo xong).
             self._vieneu_slow = self._vieneu_slow + 1 if took > slow_s else 0
             slow_limit = int(tts.get("vieneu_slow_limit", 2))
-            if slow_limit > 0 and self._vieneu_slow >= slow_limit:      # 0 = không bao giờ bỏ VieNeu chỉ vì chậm
+            if not locked and slow_limit > 0 and self._vieneu_slow >= slow_limit:      # 0 = không bao giờ bỏ VieNeu chỉ vì chậm
                 self._vieneu_trip(f"chậm liên tục (>{slow_s:.0f}s/câu)")
             return pcm
 
+    async def choose_engine(self, gender: str = "female", region: str = "", voice_key: str = "") -> str:
+        """Chốt engine TTS cho CẢ cuộc gọi (gọi lúc đang đổ chuông, nên không tốn thời gian của khách).
+        "" = giữ hành vi cũ (provider không phải vieneu); "vieneu" = VieNeu đủ nhanh; "edge" = VieNeu chưa sẵn sàng/quá chậm."""
+        tts = self.cfg["tts"]
+        if tts.get("provider") != "vieneu":
+            return ""
+        limit = float(tts.get("vieneu_probe_max_seconds", 4.0))
+        try:
+            await self._vieneu_ensure_loaded(float(tts.get("vieneu_probe_load_seconds", 20)))
+            voice = self._vieneu_pick_voice(gender, region, voice_key)
+            if not voice:
+                log.info("TTS chốt: edge (VieNeu không có giọng %s)", gender)
+                return "edge"
+            t0 = time.perf_counter()
+            async with self._vieneu_lock:
+                await asyncio.wait_for(asyncio.get_running_loop().run_in_executor(
+                    self._vieneu_pool, partial(self._vieneu_infer, "Alô anh ơi, em nghe anh nói đây nè.", voice, 1.0)), limit * 3)
+            took = time.perf_counter() - t0
+        except Exception as e:
+            log.warning("TTS chốt: edge (VieNeu chưa sẵn sàng: %r)", e)
+            return "edge"
+        eng = "vieneu" if took <= limit else "edge"
+        log.info("TTS chốt: %s (câu thử 8 chữ mất %.1fs, ngưỡng %.1fs)", eng, took, limit)
+        return eng
+
     async def synth(self, text: str, gender: str, rate: str = "", region: str = "", pitch: str = "",
-                    gemini: bool = False, voice_key: str = "", voice_override: str = "") -> bytes:
+                    gemini: bool = False, voice_key: str = "", voice_override: str = "", engine: str = "") -> bytes:
         """text -> PCM s16 mono 48k. Trả b'' nếu lỗi. (pitch/rate: chất giọng riêng của từng user; region: dành cho việc chọn giọng theo miền sau này)"""
         text = clean_for_speech(text)
         if not text:
             return b""
         tts = self.cfg["tts"]
+        if engine == "vieneu":          # đã chốt cho cả cuộc gọi: không lùi sang engine khác
+            return await self._synth_vieneu(text, gender, rate, region, voice_key, locked=True)
+        if engine == "edge":
+            return await self._synth_edge(text, gender, rate, pitch)
         # VieNeu (tự host) khi: provider="vieneu" (mọi câu) hoặc vieneu_first_turn=true và đây là lượt đầu (cờ gemini=True).
         # Lỗi/chậm -> thử tiếp Gemini (nếu được bật) rồi edge-tts.
         if tts.get("provider") == "vieneu" or (gemini and tts.get("vieneu_first_turn", False)):
@@ -599,6 +642,10 @@ class Brain:
             if pcm:
                 return pcm
             log.warning("Gemini TTS lỗi -> dùng edge-tts")
+        return await self._synth_edge(text, gender, rate, pitch)
+
+    async def _synth_edge(self, text: str, gender: str, rate: str = "", pitch: str = "") -> bytes:
+        tts = self.cfg["tts"]
         import edge_tts
         voice = tts["voice_female"] if gender == "female" else tts["voice_male"]
         try:

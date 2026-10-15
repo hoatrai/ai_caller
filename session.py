@@ -113,6 +113,8 @@ class CallSession:
         self.started_at = 0.0
         self._prep: Optional[asyncio.Task] = None
         self._t_offer = 0.0
+        self._engine_task: Optional[asyncio.Task] = None
+        self.engine = ""        # engine TTS chốt cho cả cuộc gọi ("" = cách cũ)
 
     # ---------------- vòng đời
     async def run(self) -> dict:
@@ -132,6 +134,10 @@ class CallSession:
             })
             log.info("📞 %s đang gọi adminroot (topic=%s, kịch bản=%s)",
                      self.bot["username"], self.topic, self.persona.scenario_tag)
+            # Chốt engine TTS (VieNeu hay edge) ngay lúc đổ chuông, để cả cuộc gọi dùng 1 giọng nhất quán.
+            self._engine_task = asyncio.create_task(self.brain.choose_engine(
+                self.persona.gender, self.persona.region, self.persona.username))
+            self._tasks.append(self._engine_task)
             # Chuẩn bị sẵn offer + gom ICE candidate TRONG LÚC đổ chuông (STUN có thể mất tới ~5s),
             # để lúc adminroot bấm nghe là gửi offer được ngay.
             self._prep = asyncio.create_task(self._prepare_webrtc())
@@ -324,18 +330,24 @@ class CallSession:
         if not text:
             return
         self._interrupted = False
+        if self._engine_task is not None and not self.engine:
+            try:
+                self.engine = await asyncio.wait_for(asyncio.shield(self._engine_task), 25)
+            except Exception:
+                self.engine = "edge"
         # Gemini TTS không stream: nguyên đoạn dài = chờ lâu. Tách câu để câu đầu (ngắn) ra tiếng sớm,
         # các câu sau tổng hợp song song trong lúc câu đầu đang phát. Đặt tts.gemini_split=false để về cách cũ.
         tts_cfg = self.cfg["tts"]
         one_chunk = (tts_cfg.get("provider") == "gemini" and not tts_cfg.get("gemini_split", False)) \
-            or (gemini and tts_cfg.get("gemini_first_turn", False))      # lượt đầu dùng Gemini: 1 request cho cả lượt
+            or (gemini and tts_cfg.get("gemini_first_turn", False) and tts_cfg.get("provider") != "vieneu")  # lượt đầu dùng Gemini: 1 request cho cả lượt (VieNeu thì vẫn tách câu để câu đầu ra tiếng sớm)
         sentences = [text] if one_chunk else split_for_speech(text)
         t_say = time.perf_counter()
         first = True
         tasks = [asyncio.create_task(self.brain.synth(s, self.persona.gender, self.persona.tts_rate, self.persona.region,
                                                    self.persona.tts_pitch, gemini=gemini,
                                                    voice_key=self.persona.username,
-                                                   voice_override=self.persona.gemini_voice)) for s in sentences]
+                                                   voice_override=self.persona.gemini_voice,
+                                                   engine=self.engine)) for s in sentences]
         try:
             for t in tasks:
                 pcm = await t
