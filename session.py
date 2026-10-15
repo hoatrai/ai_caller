@@ -461,7 +461,7 @@ class CallSession:
                 break
 
             t_llm = time.perf_counter()
-            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag), history)
+            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener), history)
             log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"

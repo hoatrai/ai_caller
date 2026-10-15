@@ -4,24 +4,83 @@ import random
 import unicodedata
 from dataclasses import dataclass
 
-# (mục tiêu cuộc gọi, câu gợi ý mở đầu — LLM tự diễn đạt lại, không đọc nguyên văn)
+# (mục tiêu cuộc gọi — LLM tự diễn đạt lại, không đọc nguyên văn; tag ngắn để chọn bằng --scenario)
+# Nhân vật là người quen của anh Hùng gọi điện: chuyện app Kèo chỉ là một phần, còn lại là chuyện đời sống thường ngày.
 SCENARIOS = [
-    ("Rủ anh Hùng đi nhậu/ăn uống tối nay, hỏi anh có rảnh không và gợi ý khu vực.",
-     "rủ đi nhậu tối nay"),
-    ("Hỏi cách tìm kèo gần mình trong app: bật 'đang tìm kèo' rồi mà thấy ít người quá.",
-     "hỏi cách tìm kèo gần nhà"),
-    ("Báo một lỗi nhỏ gặp phải khi dùng app (vd: lúc gọi video bị giật, hoặc không thấy bạn bè trên bản đồ) và hỏi xem có sửa chưa.",
-     "báo lỗi app"),
-    ("Xin vào một kèo đang đầy chỗ, nhờ anh Hùng giúp xem còn slot không.",
-     "xin slot kèo"),
-    ("Hỏi anh Hùng gợi ý một quán nhậu/karaoke/bar ổn áp ở quận mình để rủ nhóm bạn đi.",
-     "hỏi gợi ý quán"),
-    ("Góp ý một tính năng mong muốn cho app (vd: chia tiền sau buổi nhậu, nhắc giờ hẹn), nói chuyện thân thiện.",
-     "góp ý tính năng"),
-    ("Gọi làm quen, hỏi thăm anh Hùng dạo này thế nào, kể chuyện vừa đi kèo hôm qua vui ra sao.",
-     "hỏi thăm kể chuyện kèo"),
-    ("Báo là mình sẽ tới trễ một kèo mà anh Hùng cũng có tham gia, xin lỗi và hỏi mọi người đã đến chưa.",
-     "báo tới trễ"),
+    # ---- Kèo / app ----
+    ("Rủ anh Hùng đi nhậu/ăn uống tối nay, hỏi anh có rảnh không và gợi ý khu vực.", "rủ đi nhậu tối nay"),
+    ("Hỏi cách tìm kèo gần mình trong app: bật 'đang tìm kèo' rồi mà thấy ít người quá.", "hỏi cách tìm kèo gần nhà"),
+    ("Kể một lỗi nhỏ mình gặp khi dùng app (vd: lúc gọi video bị giật, hoặc không thấy bạn bè trên bản đồ) và hỏi anh Hùng có biết lỗi này chưa.", "báo lỗi app"),
+    ("Xin vào một kèo đang đầy chỗ, nhờ anh Hùng giúp xem còn slot không.", "xin slot kèo"),
+    ("Hỏi anh Hùng gợi ý một quán nhậu/karaoke/bar ổn áp ở quận mình để rủ nhóm bạn đi.", "hỏi gợi ý quán"),
+    ("Góp ý một tính năng mong muốn cho app (vd: chia tiền sau buổi nhậu, nhắc giờ hẹn), nói chuyện thân thiện.", "góp ý tính năng"),
+    ("Gọi làm quen, hỏi thăm anh Hùng dạo này thế nào, kể chuyện vừa đi chơi với nhóm bạn hôm qua vui ra sao.", "hỏi thăm kể chuyện kèo"),
+    ("Hỏi anh Hùng nếu tối nay có kèo thì em xin vô trễ khoảng nửa tiếng được không, vì còn kẹt chút việc.", "báo tới trễ"),
+    # ---- Ăn uống ----
+    ("Hỏi anh Hùng hay ăn sáng món gì, em đang chán bún phở muốn đổi vị.", "hỏi ăn sáng"),
+    ("Hỏi anh Hùng có biết cách nấu một món đơn giản (canh chua, thịt kho, cá kho) sao cho ngon không, em đang tập nấu ăn.", "hỏi cách nấu ăn"),
+    ("Hỏi anh Hùng quán cà phê nào yên tĩnh, wifi ổn để ngồi làm việc cả buổi.", "hỏi quán cà phê làm việc"),
+    ("Kể món bình dân em vừa ăn thấy ngon bất ngờ, hỏi anh đã thử chưa.", "kể món mới ăn"),
+    # ---- Du lịch / đi chơi ----
+    ("Hỏi kinh nghiệm đi chơi xa (Đà Lạt, Vũng Tàu, Phú Quốc hoặc Đà Nẵng, chọn một) dịp cuối tuần hay lễ: đi mấy ngày vừa, tháng nào đẹp.", "hỏi kinh nghiệm đi chơi xa"),
+    ("Đang phân vân đi chơi xa bằng xe khách, xe máy hay máy bay, hỏi ý anh Hùng.", "hỏi đi chơi xa bằng gì"),
+    ("Dịp lễ hoặc Tết sắp tới em chưa biết làm gì, hỏi anh Hùng định đi đâu hay ở nhà nghỉ ngơi.", "hỏi kế hoạch dịp lễ"),
+    ("Hỏi anh Hùng có biết sự kiện, hội chợ hay chợ đêm nào cuối tuần này để rủ nhóm đi chơi không.", "hỏi chỗ chơi cuối tuần"),
+    # ---- Công việc / học ----
+    ("Than nhẹ chuyện công việc dạo này (deadline dồn, sếp giao nhiều), muốn nói chuyện với anh cho nhẹ đầu.", "xả stress chuyện công việc"),
+    ("Sắp đi phỏng vấn xin việc, hỏi anh Hùng có mẹo chuẩn bị hay cách nói chuyện cho bớt run không.", "hỏi mẹo phỏng vấn"),
+    ("Đang muốn học lại tiếng Anh, hỏi anh Hùng học bằng app, học lớp hay xem phim phụ đề thì dễ hơn.", "hỏi học tiếng Anh"),
+    ("Phân vân học thêm một kỹ năng (Excel, thiết kế, lập trình cơ bản), hỏi ý anh Hùng nên bắt đầu từ đâu.", "hỏi học thêm kỹ năng"),
+    ("Hỏi anh Hùng có app hay cách ghi chép chi tiêu hằng tháng nào đơn giản, vì cuối tháng em hay hụt.", "hỏi cách ghi chi tiêu"),
+    # ---- Sức khỏe nhẹ / thể thao ----
+    ("Rủ anh Hùng cuối tuần đi đá bóng, đánh cầu lông hoặc chạy bộ buổi sáng, hỏi anh rảnh buổi nào.", "rủ chơi thể thao"),
+    ("Dạo này em ngủ không ngon, hỏi anh Hùng có thói quen hay mẹo gì giúp ngủ sớm không (chỉ nói kinh nghiệm bạn bè).", "hỏi mẹo ngủ"),
+    ("Mới tập gym hoặc yoga được vài tuần, hỏi anh Hùng có tập không, tập kiểu nào để khỏi nản.", "hỏi chuyện tập luyện"),
+    # ---- Giải trí ----
+    ("Hỏi anh Hùng dạo này có phim hoặc series nào đáng xem không, em đang hết thứ để coi.", "hỏi phim hay"),
+    ("Em đang nghiện một bài nhạc chill dạo này, hỏi anh Hùng hay nghe loại nhạc gì khi đi làm.", "hỏi chuyện nghe nhạc"),
+    ("Rủ anh Hùng chơi game giải trí cuối tuần (game điện thoại hoặc máy tính), hỏi anh có chơi không.", "rủ chơi game"),
+    # ---- Mua sắm / công nghệ ----
+    ("Phân vân đổi điện thoại hoặc mua laptop mới, hỏi anh Hùng đang xài máy gì thấy ổn.", "hỏi mua đồ công nghệ"),
+    ("Hỏi anh Hùng có mẹo săn sale hay mua đồ online khỏi bị hớ không.", "hỏi mẹo săn sale"),
+    # ---- Xe cộ / đi lại ----
+    ("Than chuyện kẹt xe hoặc ngập nước dạo này, hỏi anh Hùng thường đi đường nào để né.", "than chuyện kẹt xe"),
+    ("Xe máy của em sắp tới hạn bảo dưỡng, hỏi anh Hùng thường thay nhớt hay sửa xe kiểu nào cho yên tâm (không nhắc tên tiệm cụ thể).", "hỏi chuyện bảo dưỡng xe"),
+    # ---- Nhà cửa / đời sống ----
+    ("Đang tính dọn chỗ ở mới, hỏi anh Hùng có kinh nghiệm tìm phòng hay căn hộ khu nào ổn không.", "hỏi tìm chỗ ở"),
+    ("Đang tính nuôi mèo hoặc chó, hỏi anh Hùng đã nuôi bao giờ chưa, nên bắt đầu thế nào.", "hỏi chuyện nuôi thú cưng"),
+    ("Cuối tuần định dọn nhà tổng vệ sinh, hỏi anh Hùng có mẹo nào cho đỡ mệt.", "hỏi mẹo dọn nhà"),
+    # ---- Xã hội / gia đình ----
+    ("Sắp sinh nhật một người bạn thân, hỏi anh Hùng nên tặng gì cho hợp, ngân sách vừa phải.", "hỏi chọn quà"),
+    ("Được mời đám cưới một người bạn, hỏi anh Hùng thường đi với ai, mặc gì, đến sớm hay trễ cho phải phép.", "hỏi chuyện đi đám cưới"),
+    ("Hỏi ý anh Hùng về buổi họp lớp hoặc họp nhóm cuối tháng, bàn xem chọn chỗ nào hợp.", "bàn họp lớp"),
+    ("Gọi hỏi thăm nhân dịp lễ gần đây hoặc sắp tới, hỏi anh Hùng định đón lễ thế nào.", "hỏi thăm dịp lễ"),
+    # ---- Tâm sự / tán gẫu ----
+    ("Kể một chuyện buồn cười nhỏ vừa xảy ra với em (lạc đường, nhắn nhầm người, đặt nhầm món) cho anh Hùng nghe cho vui.", "kể chuyện buồn cười"),
+    ("Hỏi thăm anh Hùng dạo này khỏe không, bận gì, rồi kể vài chuyện vặt của mình.", "hỏi thăm sức khỏe"),
+    ("Hôm nay em tan ca muộn và hơi mệt, gọi nói chuyện với anh Hùng một chút cho đỡ buồn.", "tâm sự chuyện mệt"),
+]
+
+# Kịch bản vốn đã là tán gẫu: bỏ bước 'chuyển chủ đề', vào chuyện luôn.
+CHAT_TAGS = {
+    "hỏi thăm kể chuyện kèo", "hỏi ăn sáng", "kể món mới ăn", "xả stress chuyện công việc",
+    "hỏi mẹo ngủ", "hỏi phim hay", "hỏi chuyện nghe nhạc", "than chuyện kẹt xe",
+    "hỏi chuyện nuôi thú cưng", "hỏi mẹo dọn nhà", "hỏi thăm dịp lễ", "kể chuyện buồn cười",
+    "hỏi thăm sức khỏe", "tâm sự chuyện mệt",
+}
+# Chỉ kịch bản rủ rê/hẹn giờ mới có 'chi tiết cố định' (số người, giờ hẹn); các kịch bản khác không bị nhồi giờ giấc lạc đề.
+FACTS_TAGS = {"rủ đi nhậu tối nay", "xin slot kèo", "hỏi gợi ý quán", "báo tới trễ", "bàn họp lớp"}
+
+# Câu mở máy gợi ý (đa dạng để cuộc nào cũng không bắt đầu y hệt; LLM tự diễn đạt lại)
+OPENERS = [
+    "Alo, anh Hùng hả? Em nè.",
+    "A lô anh Hùng ơi, em đây.",
+    "Alo anh Hùng, anh nghe rõ em không?",
+    "Dạ alo anh Hùng, em nè.",
+    "Anh Hùng ơi, em nè, anh đang rảnh không?",
+    "Alo, em nè anh Hùng, anh nghe được hông?",
+    "Ơ anh Hùng, em nè, em gọi tí xíu thôi.",
+    "Alo anh, em đây, anh Hùng nghe máy chưa?",
 ]
 
 MOODS = [
@@ -31,22 +90,32 @@ MOODS = [
     "hào hứng, hay dùng từ cảm thán như 'trời ơi', 'dữ vậy'",
     "bình tĩnh, nói chậm rãi, hơi hài hước",
     "đang đi ngoài đường nên hơi vội, nói gọn",
+    "đang rảnh rỗi nằm nhà, nói chuyện thong thả, hay cười",
+    "hơi lo lo vì có chuyện đang phân vân, nhưng vẫn dễ chịu",
 ]
 
+# Toàn bộ nói giọng miền Nam: giọng đọc (TTS) là giọng Nam nên chữ miền Bắc đọc lên nghe lớ.
 REGIONS = [
     ("miền Nam", "dùng từ miền Nam tự nhiên: 'nghen', 'hen', 'á', 'nè', 'dị', 'hông', 'ổng/bả' khi cần"),
     ("miền Nam", "dùng từ miền Nam tự nhiên: 'nghen', 'hen', 'á', 'nè', 'dị', 'hông'"),
-    ("miền Bắc", "dùng từ miền Bắc tự nhiên: 'nhỉ', 'nhé', 'ạ', 'thế', 'vâng'"),
+    ("miền Nam", "giọng Sài Gòn nhẹ nhàng, ít từ lóng: 'nha', 'nè', 'á', 'hông', 'dạ' vừa phải"),
 ]
 
 JOBS = ["nhân viên văn phòng", "làm kế toán", "dân IT", "làm marketing", "sinh viên năm cuối", "làm sale",
-        "làm ở quán cà phê", "thiết kế đồ họa", "nhân viên ngân hàng", "tự kinh doanh nhỏ online"]
+        "làm ở quán cà phê", "thiết kế đồ họa", "nhân viên ngân hàng", "tự kinh doanh nhỏ online",
+        "giáo viên", "làm ở công ty logistic", "điều dưỡng", "làm nhân sự", "chạy freelance"]
 DISTRICTS = ["Bình Thạnh", "quận 3", "Gò Vấp", "Tân Bình", "quận 7", "Thủ Đức", "quận 10", "Phú Nhuận", "quận 1", "Tân Phú"]
 GROUPS = ["nhóm bạn đại học", "mấy đứa đồng nghiệp", "hội bạn thân tám người", "nhóm bạn chơi cùng hồi cấp ba",
           "hội anh em trong team", "mấy đứa bạn cùng phòng cũ"]
 RECENT = ["tuần trước vừa đi một kèo hải sản, vui mà xỉn quá trời", "hôm qua mới đi karaoke tới khuya, giờ còn khàn giọng",
           "cuối tuần rồi nhóm kéo nhau đi quán nướng, chia tiền loạn cả lên", "tuần này công việc dồn dập nên đang muốn xả stress",
-          "mới có một đứa bạn trong nhóm sắp cưới nên cả hội đang tính tụ tập", "cuối tháng rồi nên đang tính kiếm chỗ nào ăn ngon mà không quá mắc"]
+          "mới có một đứa bạn trong nhóm sắp cưới nên cả hội đang tính tụ tập", "cuối tháng rồi nên đang tính kiếm chỗ nào ăn ngon mà không quá mắc",
+          "mới tập nấu ăn được vài tuần, có món cháy đen mà vẫn ráng ăn hết",
+          "dạo này hay thức khuya xem phim nên sáng nào cũng ngáp dài",
+          "mới đổi chỗ làm nên còn đang làm quen đường đi và đồng nghiệp",
+          "cuối tuần rồi đi chơi xa về mà vẫn chưa lại sức, người còn rã rời",
+          "mới bị trời mưa bất chợt ướt như chuột lột lúc đang đi làm về",
+          "đang tiết kiệm để cuối năm đi chơi xa một chuyến"]
 
 # Dùng khi display_name chỉ là username viết liền (vd "thuygiang") -> chọn tên gọi tự nhiên, ổn định theo username.
 # "Nét duyên" riêng của từng nhân vật: thân thiện, tinh tế, lễ phép — không tán tỉnh, không sến.
@@ -185,6 +254,7 @@ class Persona:
     charm: str = ""
     facts: str = ""
     gender_why: str = ""
+    opener: str = ""         # câu mở máy gợi ý của cuộc gọi này
     gemini_voice: str = ""   # ghi đè giọng Gemini cho user này (account.gemini_voice), rỗng = tự chọn theo username
 
     @property
@@ -241,7 +311,9 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         tts_rate=tts_rate,
         tts_pitch=tts_pitch,
         charm=rng.choice(CHARMS),
-        facts=f"nhóm em đi {rng.randint(2, 4)} người; giờ em muốn hẹn: {rng.choice(['7 giờ tối', '7 rưỡi tối', '8 giờ tối'])}",
+        facts=(f"nhóm em đi {rng.randint(2, 4)} người; giờ em muốn hẹn: {rng.choice(['7 giờ tối', '7 rưỡi tối', '8 giờ tối'])}"
+               if tag in FACTS_TAGS else ""),
+        opener=rng.choice(OPENERS),
         region=region,
         region_style=style,
         goal=goal,
