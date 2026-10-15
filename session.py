@@ -383,7 +383,7 @@ class CallSession:
         reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
-        utt = await self._next_utterance(6.0)
+        utt = await self._next_utterance(float(cfg.get("first_alo_wait_seconds", 3.0)))   # chờ "Alô?" ngắn thôi, im lâu quá thì bot mở lời
         heard = await self.brain.transcribe(utt, self.bot["token"]) if utt is not None else ""
         history.append({"role": "user",
                         "content": heard or "(anh Hùng vừa bắt máy, chưa nói gì — bạn mở lời trước)"})
@@ -445,6 +445,11 @@ class CallSession:
                 idle = 0
                 t_stt = time.perf_counter()
                 heard = await self.brain.transcribe(utt, self.bot["token"])
+                # Khách nói thêm trong lúc bot đang nói (đã xếp hàng): gộp chung 1 lượt thay vì đáp từng câu cũ một.
+                while heard and not self._utt_q.empty():
+                    more = await self.brain.transcribe(self._utt_q.get_nowait(), self.bot["token"])
+                    if more:
+                        heard = f"{heard} {more}"
                 log.info("⏱ STT %.1fs", time.perf_counter() - t_stt)
                 if heard:
                     break

@@ -31,6 +31,7 @@ HANGUP_TAG = "[CUP_MAY]"
 _STT_HALLUCINATIONS = (
     "subscribe", "đăng ký kênh", "ghiền mì gõ", "cảm ơn các bạn đã theo dõi", "hẹn gặp lại các bạn",
     "để không bỏ lỡ", "like và share", "amara.org", "phụ đề", "thank you for watching",
+    "cảm ơn các bạn", "cảm ơn đã xem", "cảm ơn bạn đã xem", "chúc các bạn", "xin chào các bạn",
 )
 
 
@@ -73,11 +74,12 @@ def stage_hint(turn: int, tag: str = "") -> str:
     chào -> hỏi thăm/tán gẫu -> câu nối chuyển chủ đề -> mới nói việc chính."""
     chat_only = tag == "hỏi thăm kể chuyện kèo"      # kịch bản này bản thân đã là tán gẫu
     if turn <= 0:
-        return ("GIAI ĐOẠN (lượt này): MỞ MÁY. Chỉ chào và xưng tên ('Alo anh Hùng hả? Em nè'), hỏi nhanh anh đang làm gì/có tiện nói không. "
-                "TUYỆT ĐỐI CHƯA nhắc mục đích cuộc gọi, chưa nhắc app, kèo, lỗi hay lời rủ.")
+        return ("GIAI ĐOẠN (lượt này): MỞ MÁY. Chỉ MỘT câu rất ngắn (tối đa ~10 từ): nếu anh vừa nói 'alô' thì đáp lại tự nhiên ('Dạ em nè anh', 'Alo anh Hùng, em nè'). "
+                "Không hỏi dồn, không giới thiệu dài. TUYỆT ĐỐI CHƯA nhắc mục đích cuộc gọi, chưa nhắc app, kèo, lỗi hay lời rủ.")
     if turn <= 2:
-        return ("GIAI ĐOẠN (lượt này): HỎI THĂM, TÁN GẪU đời thường (dạo này sao, công việc, thời tiết, chuyện riêng của em), "
-                "phản ứng theo điều anh vừa nói và kể thêm một chút. VẪN CHƯA nhắc mục đích cuộc gọi, chưa nhắc app/kèo/lỗi.")
+        return ("GIAI ĐOẠN (lượt này): TÁN GẪU như người quen. Nối thẳng vào chữ anh vừa nói; hoặc kể MỘT chuyện nhỏ có thật trong 'Chuyện riêng' của em rồi hỏi anh một điều cụ thể. "
+                "KHÔNG hỏi chung chung kiểu thời tiết, cuối tuần, 'anh có kế hoạch gì không'. Nghe gì đáp nấy, đừng bỏ qua điều anh vừa nói. "
+                "VẪN CHƯA nhắc mục đích cuộc gọi, chưa nhắc app/kèo/lỗi.")
     if turn == 3 and not chat_only:
         return ("GIAI ĐOẠN (lượt này): CHUYỂN CHỦ ĐỀ. Dùng một câu nối tự nhiên như người thật ('à mà nhắc mới nhớ', 'mà thôi nói anh nghe nè', "
                 "'em gọi cũng là có chuyện này muốn hỏi anh'), rồi mới mở mục đích cuộc gọi, nói nhẹ nhàng, chưa nhả hết ý.")
@@ -222,8 +224,15 @@ def dedupe_a(text: str) -> str:
     return text
 
 
+_LEAD_U = re.compile(r"^\s*(?:ừ|ừm|ừa|ờ ừ)\b[\s,.!]*", re.I)
+
+
 def humanize_reply(text: str) -> str:
-    return limit_reply(dedupe_a(text))
+    text = limit_reply(dedupe_a(text))
+    t2 = _LEAD_U.sub("", text)          # bot trẻ nói với 'anh' thì không mở lời bằng 'Ừ' (LLM hay quên luật này)
+    if t2 and t2 != text:
+        text = t2[0].upper() + t2[1:]
+    return text
 
 
 def strip_farewell(text: str) -> str:
@@ -366,7 +375,8 @@ class Brain:
                     payload.update(prov.get("extra", {}))      # vd reasoning_effort cho gpt-oss
                     r = await self.http.post(
                         prov["base_url"].rstrip("/") + "/chat/completions",
-                        headers={"Authorization": f"Bearer {key}"}, json=payload)
+                        headers={"Authorization": f"Bearer {key}"}, json=payload,
+                        timeout=float(llm.get("request_timeout_seconds", 6)))     # provider chậm thì bỏ qua, đừng để khách im 19s
                     if r.status_code == 429:
                         self._llm_block[prov["model"]] = _time.monotonic() + cooldown
                         log.warning("LLM %s bị 429 -> chuyển provider khác, nghỉ model này %.0fs", prov["model"], cooldown)
@@ -382,6 +392,9 @@ class Brain:
                     log.warning("LLM %s trả về rỗng (có thể hết token do model suy luận)", prov["model"])
                 except Exception as e:
                     last_err = e
+                    if isinstance(e, httpx.TimeoutException):
+                        log.warning("LLM %s quá %.0fs -> chuyển provider khác", prov["model"], float(llm.get("request_timeout_seconds", 6)))
+                        break
                     log.warning("LLM %s lỗi (lần %d): %s", prov["model"], attempt + 1, e)
         log.error("Tất cả LLM đều lỗi/thiếu key: %s", last_err)
         return ""

@@ -20,6 +20,8 @@ DEFAULTS = {
     "same_user_cooldown_minutes": 90,
     "quiet_hours": {"enabled": True, "start": "00:00", "end": "07:00", "tz": "Asia/Ho_Chi_Minh"},
     "ring_timeout_seconds": 35,
+    "webrtc_connect_timeout_seconds": 45,
+    "first_alo_wait_seconds": 3.0,
     "offer_delay_seconds": 5,
     "max_call_seconds": 360,
     "idle_hangup_seconds": 25,
