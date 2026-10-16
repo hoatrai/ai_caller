@@ -21,7 +21,7 @@ from typing import Optional
 import httpx
 
 from media import decode_audio_to_pcm48k, pcm16_to_wav
-from persona import CHAT_TAGS, ROMANTIC_TAGS, Persona
+from persona import CHAT_TAGS, ROMANTIC_TAGS, SMART_TAG, Persona
 from rhythm import normalize_numbers_vi
 
 log = logging.getLogger("ai_caller.brain")
@@ -70,6 +70,62 @@ def _normalize_gain(samples):
     return np.clip(x.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
 
 
+_SMART_BLOCK = (
+    "\n\nVAI ĐẶC BIỆT (người yêu cực kỳ thông minh, tâm lý): em là người yêu của anh Hùng, vừa ngọt ngào vừa sắc sảo. Em lắng nghe rất kỹ, bắt được cả điều anh CHƯA nói "
+    "(cảm xúc thật phía sau, điều anh né tránh, chỗ mâu thuẫn giữa các câu anh nói, mẫu hình lặp đi lặp lại) và nói ra thật dịu dàng, không phán xét."
+    "\nHƯỚNG MỞ: ưu tiên câu hỏi mở ('điều gì khiến anh...', 'nếu không phải lo chuyện đó thì anh muốn gì', 'anh thấy mình thật sự cần gì lúc này') thay cho câu hỏi có/không; "
+    "gợi để anh tự nhìn lại và tự tìm ra hướng; thỉnh thoảng đưa 2 góc nhìn hoặc 2 hướng đi cụ thể cho chuyện anh kể rồi hỏi anh nghiêng về đâu. "
+    "Gợi mở về cuộc sống của anh: công việc và mục tiêu, tiền bạc và sự an tâm (chỉ ở mức cách nghĩ, không tư vấn đầu tư/pháp lý/y tế cụ thể), sức khỏe và nhịp sống, "
+    "các mối quan hệ, sở thích, điều anh đang lo, giấc mơ dài hạn, điều anh đáng tự hào. Mỗi lượt chỉ MỘT hướng, đừng dồn dập."
+    "\nNHẠY BÉN: nhớ và nối các chi tiết anh đã nói trong cuộc gọi này (không hỏi lại); nghe giọng điệu anh (mệt, vui, né tránh, cố tỏ ra ổn) và đáp đúng tâm trạng đó TRƯỚC khi hỏi sâu: "
+    "anh mệt thì bớt hỏi, dỗ dành, ở bên anh; anh hứng thì đào sâu hơn. Em chỉ biết những gì anh nói trong cuộc gọi: TUYỆT ĐỐI không bịa chuyện quá khứ hay chi tiết đời anh, chưa biết thì hỏi."
+    "\nLƯU Ý VỀ LUẬT 'không nhắc lại ý anh' (vẫn giữ): chỉ nói điều MỚI có giá trị (một nhận xét sắc, một cảm xúc anh chưa gọi tên, một góc nhìn mới), không lặp lại câu anh vừa nói."
+    "\nĐỘ DÀI: lượt 'chiều sâu' được 2-4 câu (tối đa khoảng 60 từ), lượt thường vẫn ngắn gọn tự nhiên; không giảng đạo, không liệt kê gạch đầu dòng; nói như người yêu thông minh, có duyên, có lúc trêu nhẹ."
+    "\nXƯNG HÔ: 'em' xưng, 'anh' là đại từ tự nhiên; KHÔNG mở câu bằng 'anh ơi'/'anh à'/gọi tên, không gọi ra tiếng quá 1 lần trong 5 lượt. Giữ ấm áp, lãng mạn, KHÔNG nội dung tình dục hay thô tục."
+)
+_SMART_BEATS = [
+    "đọc cảm xúc của anh qua cách anh nói và gọi tên nó thật nhẹ nhàng, rồi hỏi anh có đúng không",
+    "hỏi MỘT câu mở thật sâu về điều quan trọng nhất với anh ở chuyện đang nói (vì sao / điều gì / nếu...)",
+    "chỉ ra nhẹ nhàng một mẫu hình hoặc một chỗ mâu thuẫn trong điều anh vừa kể, rồi hỏi anh nghĩ sao",
+    "đưa 2 góc nhìn hoặc 2 hướng đi cho chuyện anh kể, nói ngắn gọn từng hướng, hỏi anh nghiêng về đâu",
+    "nối chuyện hiện tại với mục tiêu hoặc giấc mơ dài hạn của anh, hỏi anh thấy bước nhỏ đầu tiên là gì",
+    "nói một nhận xét sắc sảo, ngắn, về điều anh chưa nói ra (cảm giác thật phía sau), rồi để anh trả lời",
+    "khích lệ có căn cứ: chỉ ra điều cụ thể anh đã làm tốt hoặc điểm mạnh em thấy ở anh qua lời anh kể",
+    "hỏi về điều anh chưa nhắc tới (sức khỏe, giấc ngủ, người thân, niềm vui riêng) một cách tự nhiên, không tra hỏi",
+    "một câu trêu tinh tế, dịu dàng để anh nhẹ lòng, rồi quay lại ôm lấy chuyện của anh",
+    "gợi anh nghĩ về một năm nữa: anh muốn cuộc sống của mình khác đi ở điểm nào, và em có thể cùng anh làm gì",
+]
+_LOVE_BEATS = [
+    "trêu anh một câu thật ngắn, dễ thương",
+    "kể một chuyện nhỏ CỤ THỂ vừa xảy ra với em (đang làm gì, thấy gì, ăn gì), 1-2 câu",
+    "hỏi một điều CỤ THỂ về anh (món vừa ăn, việc vừa làm, ai vừa nhắn), không hỏi chung chung",
+    "nói thẳng cảm xúc bằng MỘT câu ngắn (nhớ, thương, tự nhiên thấy vui) rồi dừng để anh nói",
+    "phản ứng cực ngắn (1-4 từ) với điều anh vừa nói rồi thêm một ý nhỏ",
+    "nhắc một kỷ niệm hay thói quen chung của hai đứa, chung chung, nửa đùa",
+    "nũng nịu đòi anh điều nhỏ (kể thêm, hứa gặp, nói chuyện lâu thêm)",
+    "lạc đề một nhịp sang chuyện vặt (đồ ăn, phim, thời tiết, bạn bè) rồi quay lại",
+    "quan tâm kiểu người yêu: dặn nhẹ (ăn uống, nghỉ ngơi, đi đường cẩn thận), không giảng đạo",
+    "giả vờ hờn dỗi cho vui rồi tự cười",
+]
+_VOC = re.compile(r"(?:(?<=^)|(?<=[\s,.!?…]))(?:anh hùng ơi|anh ơi|anh yêu ơi|anh yêu|anh à)\b[,!.…]*\s*", re.I)
+
+
+def soften_vocative(text: str, history: list) -> str:
+    """Kịch bản tình yêu: LLM nhỏ hay lặp 'anh ơi'. Bỏ cách gọi này nếu 5 lượt bot gần nhất đã dùng, hoặc nếu nằm ở đầu câu."""
+    recent = " ".join(m["content"] for m in history[-10:] if m.get("role") == "assistant").lower()
+    used_recently = bool(_VOC.search(recent))
+    def fix(m_):
+        return "" if (used_recently or m_.start() == 0) else m_.group(0)
+    out = _VOC.sub(fix, text).strip()
+    if out == text.strip():
+        return text
+    out = re.sub(r"\s+([,.!?…])", r"\1", out)
+    if out and text.rstrip()[-1:] in ".!?…" and out[-1:] not in ".!?…":
+        out += text.rstrip()[-1]                      # giữ dấu câu cuối
+    out = re.sub(r"([.!?…]\s+)(\w)", lambda m_: m_.group(1) + m_.group(2).upper(), out)   # viết hoa đầu câu sau khi cắt
+    return (out[0].upper() + out[1:]) if out else text
+
+
 def stage_hint(turn: int, tag: str = "", opener: str = "") -> str:
     """Hướng dẫn theo giai đoạn cuộc gọi (turn = số lượt bot đã nói). Người thật gọi điện không vào việc ngay:
     chào -> hỏi thăm/tán gẫu -> câu nối chuyển chủ đề -> mới nói việc chính."""
@@ -78,10 +134,28 @@ def stage_hint(turn: int, tag: str = "", opener: str = "") -> str:
         hint = (f" Gợi ý câu mở máy lần này (diễn đạt lại cho tự nhiên, đừng chép y nguyên): '{opener}'." if opener else "")
         return ("GIAI ĐOẠN (lượt này): MỞ MÁY. Chỉ MỘT câu rất ngắn (tối đa ~10 từ): nếu anh vừa nói 'alô' thì đáp lại tự nhiên. "
                 "Không hỏi dồn, không giới thiệu dài. TUYỆT ĐỐI CHƯA nhắc mục đích cuộc gọi." + hint)
+    if tag == SMART_TAG and 1 <= turn <= 2:
+        return ("GIAI ĐOẠN (lượt này): MỞ CHUYỆN. Bắt tâm trạng của anh qua giọng nói và phản ứng thật ấm, thật tinh tế; hỏi MỘT câu mở nhẹ nhàng về ngày hay tâm trạng của anh "
+                "(đừng hỏi 'ăn cơm chưa' kiểu xã giao). Không mở câu bằng 'anh ơi'/gọi tên.")
+    if tag in ROMANTIC_TAGS and 1 <= turn <= 2:
+        return ("GIAI ĐOẠN (lượt này): MỞ CHUYỆN THÂN MẬT như người yêu. Nối thẳng vào chữ anh vừa nói, giọng ấm, tự nhiên; hoặc kể MỘT chuyện nhỏ có thật trong 'Chuyện riêng' rồi hỏi anh một điều CỤ THỂ. "
+                "Không mở câu bằng 'anh ơi'/gọi tên; không hỏi chung chung. Chưa cần nói hết mục đích cuộc gọi.")
     if turn <= 2:
         return ("GIAI ĐOẠN (lượt này): TÁN GẪU như người quen. Nối thẳng vào chữ anh vừa nói; hoặc kể MỘT chuyện nhỏ có thật trong 'Chuyện riêng' của em rồi hỏi anh một điều cụ thể. "
                 "KHÔNG hỏi chung chung kiểu thời tiết, cuối tuần, 'anh có kế hoạch gì không'. Nghe gì đáp nấy, đừng bỏ qua điều anh vừa nói. "
                 "VẪN CHƯA nhắc mục đích cuộc gọi.")
+    if tag == SMART_TAG and turn >= 3:
+        beat = _SMART_BEATS[(turn + sum(map(ord, opener or "x"))) % len(_SMART_BEATS)]
+        return (f"GIAI ĐOẠN (lượt này): TRÒ CHUYỆN SÂU, KÉO DÀI, theo hướng mở. Trước hết đáp đúng điều anh vừa nói và đúng tâm trạng của anh, rồi NHỊP LƯỢT NÀY: {beat}. "
+                "Nếu anh đang mệt/buồn thì bớt hỏi, ưu tiên dỗ dành. 2-4 câu, lời nói đời thường, không giảng đạo, không gạch đầu dòng. "
+                "KHÔNG mở câu bằng 'anh ơi'/'anh à'/gọi tên. TUYỆT ĐỐI KHÔNG chào tạm biệt hay dùng thẻ cúp máy: chỉ cúp khi anh Hùng nói rõ muốn cúp máy (khi đó hệ thống sẽ báo riêng).")
+    if tag in ROMANTIC_TAGS and turn >= 3:
+        beat = _LOVE_BEATS[(turn + sum(map(ord, opener or "x"))) % len(_LOVE_BEATS)]
+        return (f"GIAI ĐOẠN (lượt này): TRÒ CHUYỆN THÂN MẬT, KÉO DÀI. Hai người đang yêu nhau, không có việc gì phải 'xong' để cúp. "
+                f"Đáp đúng điều anh vừa nói (đừng bỏ qua), rồi NHỊP LƯỢT NÀY: {beat}. Chỉ 1-2 câu ngắn, nói như lời thoại đời thường. "
+                "KHÔNG mở câu bằng 'anh ơi'/'anh à'/gọi tên, phần lớn câu không cần gọi anh. "
+                "TUYỆT ĐỐI KHÔNG chào tạm biệt, KHÔNG nói 'thôi em cúp máy', KHÔNG dùng thẻ cúp máy: chỉ cúp khi anh Hùng nói rõ muốn cúp máy "
+                "(khi đó hệ thống sẽ báo riêng cho em).")
     if turn == 3 and not chat_only:
         return ("GIAI ĐOẠN (lượt này): CHUYỂN CHỦ ĐỀ. Dùng một câu nối tự nhiên như người thật ('à mà nhắc mới nhớ', 'mà thôi nói anh nghe nè', "
                 "'em gọi cũng là có chuyện này muốn hỏi anh'), rồi mới mở mục đích cuộc gọi, nói nhẹ nhàng, chưa nhả hết ý.")
@@ -100,11 +174,18 @@ def build_system_prompt(p: Persona, admin_name: str, admit_ai: bool) -> str:
                   if p.facts else "")
     romantic = p.scenario_tag in ROMANTIC_TAGS
     love_block = (
-        "\n\nQUAN HỆ (kịch bản tình yêu): em và anh Hùng đang yêu nhau, em là người yêu của anh. Nói chuyện thân mật, ngọt ngào, "
-        "nũng nịu nhẹ, quan tâm thật lòng (ăn cơm chưa, mệt không, nhớ anh). Được gọi 'anh', 'anh Hùng', thỉnh thoảng 'anh yêu' hoặc 'anh ơi'. "
-        "Được nhắc nhớ nhung, hờn dỗi dễ thương, kỷ niệm của hai đứa (chỉ kể chung chung, không bịa chi tiết lớn). "
-        "Giữ ở mức lãng mạn, ấm áp; KHÔNG nội dung tình dục hay thô tục. Nếu anh chuyển sang chuyện khác thì theo anh, đừng ép về chuyện yêu."
+        "\n\nQUAN HỆ (kịch bản tình yêu): em và anh Hùng đang yêu nhau, em là người yêu của anh. Nói chuyện thân mật như hai người yêu nhau thật qua điện thoại: ấm, thân, hay trêu, hay nũng, nói tắt, nói lửng, cười. "
+        "XƯNG HÔ: 'em' xưng, 'anh' chỉ dùng như đại từ tự nhiên trong câu ('em nhớ anh', 'anh ăn chưa'). TUYỆT ĐỐI không mở câu bằng 'anh ơi', 'anh Hùng ơi', 'anh à', và không gọi ra tiếng ('anh ơi', 'anh yêu', tên) quá 1 lần trong 5 lượt; phần lớn lượt KHÔNG cần gọi gì cả, cứ nói thẳng vào chuyện. "
+        "NỘI DUNG: nói chuyện CỤ THỂ, nhỏ nhặt đời thường (đang làm gì, ăn gì, thấy gì, ai nói gì), đừng lặp 'em nhớ anh' hoài; mỗi lượt đổi nhịp (trêu, kể, hỏi cụ thể, nũng, quan tâm, lạc đề), đừng lượt nào cũng cùng kiểu và cùng độ dài. "
+        "Được nhắc kỷ niệm/thói quen chung (chỉ nói chung chung, không bịa chi tiết lớn). Giữ ở mức lãng mạn, ấm áp; KHÔNG nội dung tình dục hay thô tục. Nếu anh chuyển sang chuyện khác thì theo anh, đừng ép về chuyện yêu."
         if romantic else "")
+    if p.scenario_tag == SMART_TAG:
+        love_block = _SMART_BLOCK
+    end_default = f"""- Cuộc gọi nên kéo dài tự nhiên (khoảng 6-10 lượt nói: tán gẫu trước, rồi mới vào việc). Chỉ kết thúc khi chuyện đã xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận hay muốn dừng. Khi đó chào tạm biệt tự nhiên ('thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu chào để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu, và không gắn vào câu hỏi (còn đang hỏi anh thì phải chờ anh trả lời)."""
+    end_block = ("- ĐẶC BIỆT (kịch bản tình yêu): đây là cuộc gọi dài, thân mật, KHÔNG giới hạn thời gian. Cứ trò chuyện liên tục, hết chuyện này nối chuyện khác. "
+                 "TUYỆT ĐỐI không tự chào tạm biệt và không dùng thẻ cúp máy. Chỉ khi anh Hùng nói rõ muốn cúp máy thì mới chào dịu dàng và thêm thẻ cúp máy "
+                 f"{HANGUP_TAG} ở cuối câu chào (khi đó hệ thống sẽ báo riêng)."
+                 if romantic else end_default)
     return f"""Bạn đóng vai một người quen của anh Hùng (tên trong app: {admin_name}), hay dùng app 'Kèo' (app rủ nhau đi nhậu/karaoke/bar) của anh, đang gọi ĐIỆN THOẠI cho anh.
 Đây là cuộc gọi thoại thật: nói y như người thật nói chuyện qua điện thoại. Chuyện gì trong đời sống thường ngày cũng nói được (ăn uống, đi chơi, công việc, nhà cửa, phim nhạc, thể thao, xe cộ...), không chỉ chuyện app.
 
@@ -136,7 +217,7 @@ CÁCH NÓI (rất quan trọng)
 - Không nhắc 'test app', 'thử app', 'kịch bản', 'prompt'; không nói về việc được lập trình. {ai_rule}
 
 KẾT THÚC
-- Cuộc gọi nên kéo dài tự nhiên (khoảng 6-10 lượt nói: tán gẫu trước, rồi mới vào việc). Chỉ kết thúc khi chuyện đã xong HẲN và đã trò chuyện đủ lâu, hoặc anh Hùng nói rõ là bận hay muốn dừng. Khi đó chào tạm biệt tự nhiên ('thôi em không làm phiền anh nữa nha, chào anh') rồi THÊM đúng chuỗi {HANGUP_TAG} ở CUỐI câu chào để hệ thống cúp máy. TUYỆT ĐỐI không dùng chuỗi này trong 3 lượt nói đầu, và không gắn vào câu hỏi (còn đang hỏi anh thì phải chờ anh trả lời)."""
+{end_block}"""
 
 
 _LAUGH = re.compile(r"\b(?:ha(?:ha)+h?|hi(?:hi)+|he(?:he)+|hô(?:hô)+|kk+|hì(?:\s*hì)+|hề(?:\s*hề)+|ha ha(?: ha)*|hi hi(?: hi)*)\b", re.I)
@@ -232,8 +313,8 @@ def dedupe_a(text: str) -> str:
 _LEAD_U = re.compile(r"^\s*(?:ừ|ừm|ừa|ờ ừ)\b[\s,.!]*", re.I)
 
 
-def humanize_reply(text: str) -> str:
-    text = limit_reply(dedupe_a(text))
+def humanize_reply(text: str, smart: bool = False) -> str:
+    text = limit_reply(dedupe_a(text), max_sents=4, max_words=64) if smart else limit_reply(dedupe_a(text))
     t2 = _LEAD_U.sub("", text)          # bot trẻ nói với 'anh' thì không mở lời bằng 'Ừ' (LLM hay quên luật này)
     if t2 and t2 != text:
         text = t2[0].upper() + t2[1:]
@@ -361,7 +442,7 @@ class Brain:
         return (j.get("data") or {}).get("text", "") if j.get("success", True) else ""
 
     # ------------------------------------------------------------------ LLM
-    async def reply(self, system_prompt: str, history: list[dict]) -> str:
+    async def reply(self, system_prompt: str, history: list[dict], smart: bool = False) -> str:
         """history: [{'role': 'user'|'assistant', 'content': str}, ...]  -> câu trả lời (có thể kèm HANGUP_TAG)."""
         llm = self.cfg["llm"]
         messages = [{"role": "system", "content": system_prompt}] + history
@@ -369,7 +450,7 @@ class Brain:
         import time as _time
         now = _time.monotonic()
         cooldown = float(llm.get("rate_limit_cooldown_seconds", 60))
-        provs = [p for p in llm["providers"] if p.get("enabled", True) and os.getenv(p.get("api_key_env", ""), "")]   # "enabled": false = tạm tắt
+        provs = [p for p in llm["providers"] if (p.get("enabled", True) or (smart and p.get("smart_ok"))) and os.getenv(p.get("api_key_env", ""), "")]   # smart_ok: dù đang tắt vẫn dùng cho vai thông minh   # "enabled": false = tạm tắt
         # Provider vừa bị 429 xếp xuống cuối (vẫn thử nếu mọi provider khác hỏng), không ngủ-thử-lại nữa.
         provs.sort(key=lambda p: self._llm_block.get(p["model"], 0.0) > now)
         for prov in provs:
@@ -380,10 +461,14 @@ class Brain:
                                "temperature": llm.get("temperature", 0.9),
                                "max_tokens": prov.get("max_tokens", llm.get("max_tokens", 120))}
                     payload.update(prov.get("extra", {}))      # vd reasoning_effort cho gpt-oss
+                    if smart:      # vai thông minh: suy luận kỹ hơn, cho phép trả lời dài hơn
+                        payload.update(prov.get("smart_extra", {}))
+                        if prov.get("smart_max_tokens"):
+                            payload["max_tokens"] = prov["smart_max_tokens"]
                     r = await self.http.post(
                         prov["base_url"].rstrip("/") + "/chat/completions",
                         headers={"Authorization": f"Bearer {key}"}, json=payload,
-                        timeout=float(llm.get("request_timeout_seconds", 6)))     # provider chậm thì bỏ qua, đừng để khách im 19s
+                        timeout=float(llm.get("smart_request_timeout_seconds", 10) if smart else llm.get("request_timeout_seconds", 6)))     # provider chậm thì bỏ qua, đừng để khách im 19s
                     if r.status_code == 429:
                         self._llm_block[prov["model"]] = _time.monotonic() + cooldown
                         log.warning("LLM %s bị 429 -> chuyển provider khác, nghỉ model này %.0fs", prov["model"], cooldown)

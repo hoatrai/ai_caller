@@ -5,6 +5,7 @@ Một cuộc gọi thoại: bot (user test) -> adminroot, qua đúng giao thức
   -> nói chuyện: nghe (VAD) -> STT -> LLM -> TTS -> phát lại qua track audio.
 """
 import asyncio
+import re
 import collections
 import logging
 import random
@@ -17,10 +18,10 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
-from brain import (HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
+from brain import (soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
                    is_farewell, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
-from persona import Persona
+from persona import ROMANTIC_TAGS, SMART_TAG, Persona, _fold
 from rhythm import jitter_rate, pause_after_ms, polish_chunk, silence_pcm
 from signaling import PhoenixRoom
 
@@ -85,6 +86,14 @@ async def resolve_admin_id(cfg: dict, token: str) -> int:
 
 
 # ---------------------------------------------------------------- Call session
+
+
+_END_RE = re.compile(r"\b(cup|tat|dap|ngat)\s+(may|nha|nhe|nghen|day|di|thoi|luon)\b|\bthoi\s+cup\b|\bbye\b|\btam biet\b")
+
+
+def _wants_to_end(text: str) -> bool:
+    """Anh Hùng nói muốn cúp máy ('cúp máy nha', 'thôi cúp đi', 'tắt máy', 'bye'...)."""
+    return bool(_END_RE.search(_fold(text or "")))
 
 
 class CallSession:
@@ -413,7 +422,7 @@ class CallSession:
 
     async def _reply_with_filler(self, system: str, history: list[dict]) -> str:
         """Gọi LLM; nếu quá lâu chưa có câu trả lời thì nói 1 tiếng đệm ('ờm...') như người đang nghĩ, khỏi im bặt."""
-        task = asyncio.create_task(self.brain.reply(system, history))
+        task = asyncio.create_task(self.brain.reply(system, history, smart=(self.persona.scenario_tag == SMART_TAG)))
         try:
             tts_cfg = self.cfg["tts"]
             if self.turns >= 1 and self._fillers and tts_cfg.get("human_rhythm", True) and tts_cfg.get("filler", True):
@@ -443,6 +452,10 @@ class CallSession:
         deadline = time.time() + cfg["max_call_seconds"]
         idle = 0
         min_turns = int(cfg.get("min_turns_before_hangup", 6))
+        romantic = self.persona.scenario_tag in ROMANTIC_TAGS
+        end_requested = False      # cuộc gọi tình yêu: chỉ cúp khi anh Hùng nói muốn cúp máy
+        if romantic:
+            deadline = time.time() + int(cfg.get("romantic_max_call_seconds", 3600))     # mặc định tối đa 1 giờ
         reason = "ended_by_peer"
 
         # Người nghe máy thường nói "Alô?" trước.
@@ -461,7 +474,9 @@ class CallSession:
                 break
 
             t_llm = time.perf_counter()
-            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener), history)
+            end_hint = ("\n\nANH HÙNG VỪA NÓI MUỐN CÚP MÁY: hãy chào tạm biệt thật dịu dàng, ngắn gọn (không hỏi thêm gì) rồi THÊM thẻ cúp máy ở cuối câu chào."
+                        if end_requested else "")
+            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener) + end_hint, history)
             log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
             if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"
@@ -469,11 +484,18 @@ class CallSession:
                 break
             hangup = HANGUP_TAG in reply
             suppressed = False
-            if hangup and self.turns + 1 < min_turns:
+            if romantic:
+                if hangup and not end_requested:
+                    log.info("Bỏ thẻ cúp máy: kịch bản tình yêu, anh Hùng chưa nói cúp máy")
+                    hangup = False
+                    suppressed = True
+            elif hangup and self.turns + 1 < min_turns:
                 log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
                 hangup = False
                 suppressed = True
-            spoken = humanize_reply(clean_for_speech(reply))
+            spoken = humanize_reply(clean_for_speech(reply), smart=(self.persona.scenario_tag == SMART_TAG))
+            if romantic:
+                spoken = soften_vocative(spoken, history)
             if hangup and not is_farewell(spoken):
                 # Chỉ cúp khi câu thật sự là lời chào tạm biệt, không phải câu hỏi (tránh cúp ngang lúc đang hỏi anh).
                 log.info("Bỏ thẻ cúp máy: câu không phải lời chào kết thúc (%r)", spoken[-40:])
@@ -499,7 +521,7 @@ class CallSession:
                 utt = await self._next_utterance(cfg["idle_hangup_seconds"])
                 if utt is None:
                     idle += 1
-                    if idle >= 2:
+                    if idle >= 2 and not romantic:
                         reason = "idle"
                         await self.say("Alô? Chắc anh đang bận, em gọi lại sau nha anh.")
                         stop = True
@@ -526,5 +548,8 @@ class CallSession:
                 break
             if heard:
                 log.info("👤 adminroot: %s", heard)
+                if romantic and _wants_to_end(heard):
+                    end_requested = True
+                    log.info("Anh Hùng nói muốn cúp máy -> bot chào rồi cúp")
                 history.append({"role": "user", "content": heard})
         log.info("Kết thúc hội thoại. Lý do: %s (ended=%s, end_reason=%s)", reason, self.ended.is_set(), self.end_reason)

@@ -60,12 +60,13 @@ SCENARIOS = [
     ("Hỏi thăm anh Hùng dạo này khỏe không, bận gì, rồi kể vài chuyện vặt của mình.", "hỏi thăm sức khỏe"),
     ("Hôm nay em tan ca muộn và hơi mệt, gọi nói chuyện với anh Hùng một chút cho đỡ buồn.", "tâm sự chuyện mệt"),
     # ---- Tình yêu (đang yêu nhau, nói chuyện thân mật; chỉ dùng cho giọng nữ) ----
-    ("Gọi cho người yêu (anh Hùng) vì nhớ, hỏi anh đang làm gì, ăn cơm chưa, nói em nhớ anh nên gọi một chút thôi.", "nhớ người yêu"),
-    ("Gọi chúc người yêu ngủ ngon trước khi đi ngủ, nũng nịu bảo anh đừng thức khuya, kể nhanh một chuyện trong ngày.", "chúc ngủ ngon người yêu"),
-    ("Hơi giận hờn nhẹ vì anh trả lời tin nhắn trễ, nhưng nói chuyện một lúc thì nguôi và làm hòa ngọt ngào.", "giận hờn làm hòa"),
-    ("Rủ người yêu (anh Hùng) cuối tuần đi hẹn hò riêng hai người (xem phim, đi dạo, ăn tối), bàn xem anh thích đi đâu.", "rủ người yêu đi hẹn hò"),
-    ("Sắp tới kỷ niệm ngày yêu nhau, hỏi anh Hùng còn nhớ không, nửa đùa nửa thật, rồi bàn xem hai đứa làm gì cho vui.", "bàn kỷ niệm yêu nhau"),
-    ("Hôm nay em có chuyện vui (hoặc mệt) ở chỗ làm, gọi kể cho người yêu nghe và muốn được anh Hùng quan tâm, dỗ dành.", "kể chuyện cho người yêu"),
+    # Mục tiêu viết kiểu "chuyện dài": nhiều mạch để nói tiếp, không có điểm dừng sớm.
+    ("Gọi cho người yêu (anh Hùng) vì nhớ anh. Hỏi anh đang làm gì, ăn cơm chưa, hôm nay mệt không; kể chuyện trong ngày của em, hỏi về chuyện của anh, nói em nhớ anh cỡ nào và hai đứa hay làm gì cùng nhau. Cứ tâm sự thong thả, không vội cúp.", "nhớ người yêu"),
+    ("Tối muộn, gọi cho người yêu (anh Hùng) trước khi ngủ. Kể chuyện trong ngày, hỏi ngày của anh, nũng nịu dặn anh đừng thức khuya, nói chuyện linh tinh, trêu nhau, hẹn mai gặp. Chỉ chúc ngủ ngon khi anh buồn ngủ hoặc nói muốn đi ngủ.", "chúc ngủ ngon người yêu"),
+    ("Hơi giận hờn người yêu (anh Hùng) vì chuyện nhỏ (anh trả lời tin nhắn trễ, quên hẹn). Nói ra cảm xúc, nghe anh giải thích, dỗi thêm một chút rồi từ từ nguôi, làm hòa ngọt ngào và nói chuyện thân mật tiếp.", "giận hờn làm hòa"),
+    ("Rủ người yêu (anh Hùng) cuối tuần đi hẹn hò riêng hai người. Bàn xem đi đâu (xem phim, đi dạo, ăn tối, cà phê), ăn gì, mấy giờ, mặc gì, mong chờ buổi hẹn; hỏi anh thích gì và nói chuyện vui vẻ.", "rủ người yêu đi hẹn hò"),
+    ("Sắp tới kỷ niệm ngày yêu nhau, hỏi anh Hùng còn nhớ không (nửa đùa nửa thật). Nhắc lại vài kỷ niệm chung (chỉ nói chung chung), bàn làm gì cho ngày đó, quà, bữa ăn, rồi tâm sự về tương lai hai đứa.", "bàn kỷ niệm yêu nhau"),
+    ("Hôm nay em có chuyện (vui hoặc mệt) ở chỗ làm, gọi kể cho người yêu (anh Hùng) nghe cặn kẽ, muốn được anh quan tâm, dỗ dành, rồi hỏi lại chuyện của anh và nói chuyện thân mật tiếp.", "kể chuyện cho người yêu"),
 ]
 
 # Kịch bản vốn đã là tán gẫu: bỏ bước 'chuyển chủ đề', vào chuyện luôn.
@@ -83,12 +84,19 @@ ROMANTIC_TAGS = {
     "nhớ người yêu", "chúc ngủ ngon người yêu", "giận hờn làm hòa",
     "rủ người yêu đi hẹn hò", "bàn kỷ niệm yêu nhau", "kể chuyện cho người yêu",
 }
+# Vai ĐẶC BIỆT: người yêu cực kỳ thông minh, tâm lý (chỉ dành cho tài khoản được chỉ định, vd kieuthom; không có trong bốc ngẫu nhiên).
+SMART_TAG = "người yêu thông minh"
+SMART_GOAL = ("Gọi cho anh Hùng, người yêu của em, để trò chuyện thân mật và sâu sắc. Em rất thông minh, tinh tế, tâm lý: lắng nghe điều anh nói và cả điều anh chưa nói, "
+              "hỏi những câu mở giúp anh nhìn lại cuộc sống (công việc, mục tiêu, tiền bạc, sức khỏe, các mối quan hệ, ước mơ, điều anh đang lo), và gợi ý cho anh những hướng đi, góc nhìn mới.")
+SMART_MOOD = "điềm tĩnh, ấm áp, nói chậm rãi, chú tâm lắng nghe anh"
+ROMANTIC_TAGS = ROMANTIC_TAGS | {SMART_TAG}
+CHAT_TAGS = CHAT_TAGS | {SMART_TAG}
 ROMANTIC_OPENERS = [
-    "Alo anh, em nè.",
-    "Anh ơi, em gọi anh nè.",
+    "Alo, em nè.",
     "Alo, anh đang làm gì đó?",
-    "Anh Hùng ơi, anh nghe em không?",
-    "Alo anh yêu, em nhớ anh quá nên gọi nè.",
+    "Alo, nghe em không?",
+    "A lô, em nè, anh rảnh không?",
+    "Alo, em nhớ anh quá nên gọi nè.",
 ]
 # Chỉ kịch bản rủ rê/hẹn giờ mới có 'chi tiết cố định' (số người, giờ hẹn); các kịch bản khác không bị nhồi giờ giấc lạc đề.
 FACTS_TAGS = {"rủ đi nhậu tối nay", "xin slot kèo", "hỏi gợi ý quán", "báo tới trễ", "bàn họp lớp"}
@@ -304,10 +312,14 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     pool = [s for s in SCENARIOS if scenario_tag in (None, s[1])
             and (gender == "female" or s[1] not in ROMANTIC_TAGS)] or \
            [s for s in SCENARIOS if s[1] not in ROMANTIC_TAGS]
-    goal, tag = rng.choice(pool)
+    if scenario_tag == SMART_TAG:       # vai cố định: luôn là nữ, người yêu thông minh
+        goal, tag = SMART_GOAL, SMART_TAG
+        gender, gender_why = "female", "vai cố định (người yêu thông minh)"
+    else:
+        goal, tag = rng.choice(pool)
     region, style = rng.choice(REGIONS)
     nick = ""
-    mood = rng.choice(MOODS)
+    mood = SMART_MOOD if scenario_tag == SMART_TAG else rng.choice(MOODS)
     # Mỗi user 1 "chất giọng" riêng cố định theo username (cao độ + tốc độ nền), tâm trạng mỗi cuộc chỉ nhích nhẹ tốc độ.
     h = int(hashlib.md5(username.encode()).hexdigest(), 16)
     if gender == "female":
@@ -325,7 +337,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     if len(words) < 2:   # chỉ 1 từ (username viết liền) -> đặt tên gọi tự nhiên, cố định theo username
         pool = NAMES_F if gender == "female" else NAMES_M
         nick = pool[int(hashlib.md5(username.encode()).hexdigest(), 16) % len(pool)]
-    return Persona(
+    _p = Persona(
         username=username,
         display_name=display_name or username,
         gender=gender,
@@ -347,3 +359,10 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         backstory=(f"{rng.choice(JOBS)}, ở {rng.choice(DISTRICTS)}, hay đi chơi với {rng.choice(GROUPS)}; "
                    f"gần đây: {rng.choice(RECENT)}."),
     )
+    if tag == SMART_TAG:
+        _p.age = rng.randint(28, 33)
+        _p.charm = "tinh tế, sắc sảo, hóm hỉnh vừa đủ, biết nói điều đúng lúc"
+        _p.facts = ""
+        _p.backstory = ("người rất tinh ý, hay quan sát và đọc được tâm trạng của anh qua giọng nói; thích những câu hỏi khiến người ta nghĩ sâu hơn; "
+                        "hay quan tâm đến sức khỏe, công việc và những dự định của anh.")
+    return _p

@@ -42,5 +42,9 @@
     "tuyetnhung": "chúc ngủ ngon người yêu",
     "vuhanh": "giận hờn làm hòa",
     "vypham": "rủ người yêu đi hẹn hò"
-  }
+  },
+  "fixed_users": {
+    "kieuthom": "người yêu thông minh"
+  },
+  "_ghi_chu_fixed": "fixed_users: user -> vai cố định, luôn dùng (không theo xác suất). 'người yêu thông minh' chỉ giao cho user ở đây."
 }
