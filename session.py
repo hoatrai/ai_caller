@@ -201,9 +201,16 @@ class CallSession:
     async def _cleanup(self):
         try:
             if not self.ended.is_set() and not self.room.closed.is_set():
-                await self.room.push("call_end", {})
-        except Exception:
-            pass
+                # Chờ server trả lời + nghỉ chút để tin call_end kịp tới app TRƯỚC khi đóng WebRTC/WebSocket
+                # (trước đây đẩy xong là đóng ngay, app có thể không kịp nhận nên đồng hồ cuộc gọi cứ chạy tiếp).
+                reply = await self.room.push("call_end", {}, wait_reply=True, timeout=3.0)
+                log.info("📴 đã gửi call_end cho app (server trả lời: %s)", str(reply)[:150])
+                await asyncio.sleep(0.6)
+            else:
+                log.info("📴 không gửi call_end (ended=%s, room_closed=%s, lý do=%s)",
+                         self.ended.is_set(), self.room.closed.is_set(), self.end_reason)
+        except Exception as e:
+            log.warning("📴 gửi call_end lỗi hoặc server không trả lời: %r", e)
         for t in self._tasks:
             t.cancel()
         if self.pc:
