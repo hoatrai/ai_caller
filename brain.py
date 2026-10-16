@@ -580,6 +580,10 @@ class Brain:
         """Mỗi user một giọng cố định (hash username), đúng giới tính; ưu tiên cùng vùng miền. Không có giọng hợp -> None."""
         tts = self.cfg["tts"]
         fem = gender == "female"
+        # Gán cứng: "vieneu_voice_map": {"username": "tên giọng"} -> user đó luôn dùng đúng giọng này (nếu giọng có thật)
+        forced = (tts.get("vieneu_voice_map") or {}).get(voice_key)
+        if forced and any(forced == n for lst in self._vieneu_voices.values() for n, _ in lst):
+            return forced
         pool = list(tts.get("vieneu_voices_female" if fem else "vieneu_voices_male") or [])
         if not pool:
             cand = self._vieneu_voices.get("female" if fem else "male", [])
