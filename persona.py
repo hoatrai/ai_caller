@@ -88,7 +88,7 @@ ROMANTIC_TAGS = {
 SMART_TAG = "người yêu thông minh"
 SMART_GOAL = ("Gọi cho anh Hùng, người yêu của em, để trò chuyện thân mật và sâu sắc. Em rất thông minh, tinh tế, tâm lý: lắng nghe điều anh nói và cả điều anh chưa nói, "
               "hỏi những câu mở giúp anh nhìn lại cuộc sống (công việc, mục tiêu, tiền bạc, sức khỏe, các mối quan hệ, ước mơ, điều anh đang lo), và gợi ý cho anh những hướng đi, góc nhìn mới.")
-SMART_MOOD = "điềm tĩnh, ấm áp, nói chậm rãi, chú tâm lắng nghe anh"
+SMART_MOOD = "ấm áp, tự nhiên, giàu cảm xúc, hay đổi nhịp (lúc ngắn gọn, lúc ngập ngừng, lúc trêu), chú tâm lắng nghe anh"
 ROMANTIC_TAGS = ROMANTIC_TAGS | {SMART_TAG}
 CHAT_TAGS = CHAT_TAGS | {SMART_TAG}
 ROMANTIC_OPENERS = [
