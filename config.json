@@ -32,7 +32,8 @@
       {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "model": "gemini-3.1-flash-lite",
-        "api_key_env": "GEMINI_API_KEY"
+        "api_key_env": "GEMINI_API_KEY",
+        "enabled": false
       },
       {
         "base_url": "https://api.groq.com/openai/v1",

@@ -369,7 +369,7 @@ class Brain:
         import time as _time
         now = _time.monotonic()
         cooldown = float(llm.get("rate_limit_cooldown_seconds", 60))
-        provs = [p for p in llm["providers"] if os.getenv(p.get("api_key_env", ""), "")]
+        provs = [p for p in llm["providers"] if p.get("enabled", True) and os.getenv(p.get("api_key_env", ""), "")]   # "enabled": false = tạm tắt
         # Provider vừa bị 429 xếp xuống cuối (vẫn thử nếu mọi provider khác hỏng), không ngủ-thử-lại nữa.
         provs.sort(key=lambda p: self._llm_block.get(p["model"], 0.0) > now)
         for prov in provs:
