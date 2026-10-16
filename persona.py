@@ -59,6 +59,13 @@ SCENARIOS = [
     ("Kể một chuyện buồn cười nhỏ vừa xảy ra với em (lạc đường, nhắn nhầm người, đặt nhầm món) cho anh Hùng nghe cho vui.", "kể chuyện buồn cười"),
     ("Hỏi thăm anh Hùng dạo này khỏe không, bận gì, rồi kể vài chuyện vặt của mình.", "hỏi thăm sức khỏe"),
     ("Hôm nay em tan ca muộn và hơi mệt, gọi nói chuyện với anh Hùng một chút cho đỡ buồn.", "tâm sự chuyện mệt"),
+    # ---- Tình yêu (đang yêu nhau, nói chuyện thân mật; chỉ dùng cho giọng nữ) ----
+    ("Gọi cho người yêu (anh Hùng) vì nhớ, hỏi anh đang làm gì, ăn cơm chưa, nói em nhớ anh nên gọi một chút thôi.", "nhớ người yêu"),
+    ("Gọi chúc người yêu ngủ ngon trước khi đi ngủ, nũng nịu bảo anh đừng thức khuya, kể nhanh một chuyện trong ngày.", "chúc ngủ ngon người yêu"),
+    ("Hơi giận hờn nhẹ vì anh trả lời tin nhắn trễ, nhưng nói chuyện một lúc thì nguôi và làm hòa ngọt ngào.", "giận hờn làm hòa"),
+    ("Rủ người yêu (anh Hùng) cuối tuần đi hẹn hò riêng hai người (xem phim, đi dạo, ăn tối), bàn xem anh thích đi đâu.", "rủ người yêu đi hẹn hò"),
+    ("Sắp tới kỷ niệm ngày yêu nhau, hỏi anh Hùng còn nhớ không, nửa đùa nửa thật, rồi bàn xem hai đứa làm gì cho vui.", "bàn kỷ niệm yêu nhau"),
+    ("Hôm nay em có chuyện vui (hoặc mệt) ở chỗ làm, gọi kể cho người yêu nghe và muốn được anh Hùng quan tâm, dỗ dành.", "kể chuyện cho người yêu"),
 ]
 
 # Kịch bản vốn đã là tán gẫu: bỏ bước 'chuyển chủ đề', vào chuyện luôn.
@@ -67,7 +74,22 @@ CHAT_TAGS = {
     "hỏi mẹo ngủ", "hỏi phim hay", "hỏi chuyện nghe nhạc", "than chuyện kẹt xe",
     "hỏi chuyện nuôi thú cưng", "hỏi mẹo dọn nhà", "hỏi thăm dịp lễ", "kể chuyện buồn cười",
     "hỏi thăm sức khỏe", "tâm sự chuyện mệt",
+} | {
+    "nhớ người yêu", "chúc ngủ ngon người yêu", "giận hờn làm hòa",
+    "rủ người yêu đi hẹn hò", "bàn kỷ niệm yêu nhau", "kể chuyện cho người yêu",
 }
+# Kịch bản tình yêu: vai người yêu của anh Hùng, nói chuyện thân mật (không tục, không 18+). Chỉ giao cho giọng nữ.
+ROMANTIC_TAGS = {
+    "nhớ người yêu", "chúc ngủ ngon người yêu", "giận hờn làm hòa",
+    "rủ người yêu đi hẹn hò", "bàn kỷ niệm yêu nhau", "kể chuyện cho người yêu",
+}
+ROMANTIC_OPENERS = [
+    "Alo anh, em nè.",
+    "Anh ơi, em gọi anh nè.",
+    "Alo, anh đang làm gì đó?",
+    "Anh Hùng ơi, anh nghe em không?",
+    "Alo anh yêu, em nhớ anh quá nên gọi nè.",
+]
 # Chỉ kịch bản rủ rê/hẹn giờ mới có 'chi tiết cố định' (số người, giờ hẹn); các kịch bản khác không bị nhồi giờ giấc lạc đề.
 FACTS_TAGS = {"rủ đi nhậu tối nay", "xin slot kèo", "hỏi gợi ý quán", "báo tới trễ", "bàn họp lớp"}
 
@@ -275,12 +297,15 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     rng = rng or random.Random()
     username = account["username"]
     goal, tag = None, None
-    pool = [s for s in SCENARIOS if scenario_tag in (None, s[1])] or SCENARIOS
-    goal, tag = rng.choice(pool)
-    region, style = rng.choice(REGIONS)
     shown = display_name or username
     words = [w for w in "".join(c if c.isalpha() or c == " " else " " for c in shown).split() if w]
     gender, gender_why = detect_gender(username, display_name or "", account.get("gender"))
+    # Kịch bản tình yêu chỉ dành cho giọng nữ (người yêu của anh Hùng); giọng nam thì bỏ qua nhóm này.
+    pool = [s for s in SCENARIOS if scenario_tag in (None, s[1])
+            and (gender == "female" or s[1] not in ROMANTIC_TAGS)] or \
+           [s for s in SCENARIOS if s[1] not in ROMANTIC_TAGS]
+    goal, tag = rng.choice(pool)
+    region, style = rng.choice(REGIONS)
     nick = ""
     mood = rng.choice(MOODS)
     # Mỗi user 1 "chất giọng" riêng cố định theo username (cao độ + tốc độ nền), tâm trạng mỗi cuộc chỉ nhích nhẹ tốc độ.
@@ -313,7 +338,7 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         charm=rng.choice(CHARMS),
         facts=(f"nhóm em đi {rng.randint(2, 4)} người; giờ em muốn hẹn: {rng.choice(['7 giờ tối', '7 rưỡi tối', '8 giờ tối'])}"
                if tag in FACTS_TAGS else ""),
-        opener=rng.choice(OPENERS),
+        opener=rng.choice(ROMANTIC_OPENERS if tag in ROMANTIC_TAGS else OPENERS),
         region=region,
         region_style=style,
         goal=goal,

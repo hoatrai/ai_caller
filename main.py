@@ -58,6 +58,15 @@ class State:
         return ok or accounts      # nếu ai cũng đang cooldown thì vẫn chọn tạm
 
 
+def _load_assignments() -> dict:
+    """Đọc scenario_assignments.json (cạnh main.py). Thiếu/lỗi file -> không gán, bốc ngẫu nhiên như cũ."""
+    try:
+        d = json.loads((Path(__file__).parent / "scenario_assignments.json").read_text(encoding="utf-8"))
+        return {"users": d.get("users", {}), "prob": float(d.get("assigned_prob", 0.6))}
+    except Exception:
+        return {"users": {}, "prob": 0.0}
+
+
 async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=False):
     accounts = cfg["accounts"]
     if not accounts:
@@ -83,6 +92,11 @@ async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=
         return
 
     admin_id = await resolve_admin_id(cfg, bot["token"])
+    if not force_scenario:                    # user được gán chủ đề riêng (scenario_assignments.json)
+        asg = _load_assignments()
+        tag = asg["users"].get(bot["username"])
+        if tag and random.random() < asg["prob"]:
+            force_scenario = tag
     persona = make_persona({"username": bot["username"], "gender": bot.get("gender")},
                            bot["display_name"], scenario_tag=force_scenario)
     log.info("Chọn %s (%s, %s — %s) — %s", bot["username"], bot["display_name"], persona.gender, persona.gender_why, persona.scenario_tag)
