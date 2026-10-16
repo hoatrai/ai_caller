@@ -18,7 +18,7 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
-from brain import (soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
+from brain import (turn_shape, soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
                    is_farewell, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
 from persona import ROMANTIC_TAGS, SMART_TAG, Persona, _fold
@@ -457,6 +457,7 @@ class CallSession:
         if romantic:
             deadline = time.time() + int(cfg.get("romantic_max_call_seconds", 3600))     # mặc định tối đa 1 giờ
         reason = "ended_by_peer"
+        shape_hist: list[int] = []     # các kiểu lượt đã dùng (vai thông minh bốc kiểu khác nhau mỗi lượt)
 
         # Người nghe máy thường nói "Alô?" trước.
         utt = await self._next_utterance(float(cfg.get("first_alo_wait_seconds", 3.0)))   # chờ "Alô?" ngắn thôi, im lâu quá thì bot mở lời
@@ -476,9 +477,29 @@ class CallSession:
             t_llm = time.perf_counter()
             end_hint = ("\n\nANH HÙNG VỪA NÓI MUỐN CÚP MÁY: hãy chào tạm biệt thật dịu dàng, ngắn gọn (không hỏi thêm gì) rồi THÊM thẻ cúp máy ở cuối câu chào."
                         if end_requested else "")
-            reply = await self._reply_with_filler(system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener) + end_hint, history)
+            turn_prompt = system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener) + end_hint
+            if self.persona.scenario_tag == SMART_TAG and not end_requested and self.turns >= 1:
+                shape_i, shape_line = turn_shape(shape_hist, self.turns)
+                shape_hist.append(shape_i)
+                turn_prompt += "\n\n" + shape_line
+                log.info("🎲 kiểu lượt #%d", shape_i)
+            reply = await self._reply_with_filler(turn_prompt, history)
             log.info("⏱ LLM %.1fs", time.perf_counter() - t_llm)
-            if not reply:      # LLM hỏng: nói câu an toàn rồi kết thúc, đừng im lặng
+            if not reply:      # mọi LLM cùng lỗi (429/503...): xin chờ chút rồi thử lại vài lần, đừng cúp ngay
+                for k in range(int(cfg.get("llm_retry_attempts", 3))):
+                    if self.ended.is_set():
+                        break
+                    if k == 0:
+                        await self.say(random.choice([
+                            "Ơ chờ em xíu nghen, mạng em hơi chậm.",
+                            "Ờ khoan, đợi em chút nha, em nghe không rõ lắm.",
+                        ]))
+                    await asyncio.sleep(float(cfg.get("llm_retry_wait_seconds", 5)))
+                    log.info("Thử lại LLM lần %d sau khi tất cả provider lỗi", k + 1)
+                    reply = await self.brain.reply(turn_prompt, history, smart=(self.persona.scenario_tag == SMART_TAG))
+                    if reply:
+                        break
+            if not reply:      # LLM hỏng hẳn: nói câu an toàn rồi kết thúc, đừng im lặng
                 reason = "llm_failed"
                 await self.say("Ơ mạng em hơi chập chờn, em gọi lại anh sau nha.")
                 break

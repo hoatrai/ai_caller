@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -80,7 +81,7 @@ _SMART_BLOCK = (
     "\nNHẠY BÉN: nhớ và nối các chi tiết anh đã nói trong cuộc gọi này (không hỏi lại); nghe giọng điệu anh (mệt, vui, né tránh, cố tỏ ra ổn) và đáp đúng tâm trạng đó TRƯỚC khi hỏi sâu: "
     "anh mệt thì bớt hỏi, dỗ dành, ở bên anh; anh hứng thì đào sâu hơn. Em chỉ biết những gì anh nói trong cuộc gọi: TUYỆT ĐỐI không bịa chuyện quá khứ hay chi tiết đời anh, chưa biết thì hỏi."
     "\nLƯU Ý VỀ LUẬT 'không nhắc lại ý anh' (vẫn giữ): chỉ nói điều MỚI có giá trị (một nhận xét sắc, một cảm xúc anh chưa gọi tên, một góc nhìn mới), không lặp lại câu anh vừa nói."
-    "\nĐỘ DÀI: lượt 'chiều sâu' được 2-3 câu (tối đa khoảng 45 từ), lượt thường vẫn ngắn gọn tự nhiên; không giảng đạo, không liệt kê gạch đầu dòng; nói như người yêu thông minh, có duyên, có lúc trêu nhẹ."
+    "\nĐỘ DÀI: số câu mỗi lượt KHÔNG cố định: làm đúng theo dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối prompt (có lượt chỉ 1 câu, có lượt kể chuyện vài câu), tuyệt đối không lượt nào cũng cùng số câu hay cùng cấu trúc; không giảng đạo, không liệt kê gạch đầu dòng; nói như người yêu thông minh, có duyên, có lúc trêu nhẹ."
     "\nNHỊP NÓI (rất quan trọng, lời này được đọc thành tiếng): em đang NÓI CHUYỆN QUA ĐIỆN THOẠI, tuyệt đối KHÔNG đọc truyện, không giọng ru ngủ, không văn viết. "
     "Mỗi câu ngắn (thường 5-12 từ), câu ngắn xen câu dài, KHÔNG cùng một cấu trúc, KHÔNG câu nào cũng trôi một mạch. "
     "Mở lượt bằng một phản ứng cảm xúc ngắn đúng lúc ('ủa', 'trời', 'ờ…', 'hmm', 'thiệt hả', 'ui', 'thương ghê') rồi mới nói ý. "
@@ -152,12 +153,12 @@ def stage_hint(turn: int, tag: str = "", opener: str = "") -> str:
     if tag == SMART_TAG and turn >= 3:
         beat = _SMART_BEATS[(turn + sum(map(ord, opener or "x"))) % len(_SMART_BEATS)]
         return (f"GIAI ĐOẠN (lượt này): TRÒ CHUYỆN SÂU, KÉO DÀI, theo hướng mở. Trước hết đáp đúng điều anh vừa nói và đúng tâm trạng của anh, rồi NHỊP LƯỢT NÀY: {beat}. "
-                "Nếu anh đang mệt/buồn thì bớt hỏi, ưu tiên dỗ dành. 2-4 câu, lời nói đời thường, không giảng đạo, không gạch đầu dòng. "
+                "Nếu anh đang mệt/buồn thì bớt hỏi, ưu tiên dỗ dành. Độ dài theo dòng 'KIỂU LỜI NÓI LƯỢT NÀY', lời nói đời thường, không giảng đạo, không gạch đầu dòng. "
                 "KHÔNG mở câu bằng 'anh ơi'/'anh à'/gọi tên. TUYỆT ĐỐI KHÔNG chào tạm biệt hay dùng thẻ cúp máy: chỉ cúp khi anh Hùng nói rõ muốn cúp máy (khi đó hệ thống sẽ báo riêng).")
     if tag in ROMANTIC_TAGS and turn >= 3:
         beat = _LOVE_BEATS[(turn + sum(map(ord, opener or "x"))) % len(_LOVE_BEATS)]
         return (f"GIAI ĐOẠN (lượt này): TRÒ CHUYỆN THÂN MẬT, KÉO DÀI. Hai người đang yêu nhau, không có việc gì phải 'xong' để cúp. "
-                f"Đáp đúng điều anh vừa nói (đừng bỏ qua), rồi NHỊP LƯỢT NÀY: {beat}. Chỉ 1-2 câu ngắn, nói như lời thoại đời thường. "
+                f"Đáp đúng điều anh vừa nói (đừng bỏ qua), rồi NHỊP LƯỢT NÀY: {beat}. Nói như lời thoại đời thường, độ dài theo dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối prompt. "
                 "KHÔNG mở câu bằng 'anh ơi'/'anh à'/gọi tên, phần lớn câu không cần gọi anh. "
                 "TUYỆT ĐỐI KHÔNG chào tạm biệt, KHÔNG nói 'thôi em cúp máy', KHÔNG dùng thẻ cúp máy: chỉ cúp khi anh Hùng nói rõ muốn cúp máy "
                 "(khi đó hệ thống sẽ báo riêng cho em).")
@@ -319,11 +320,48 @@ _LEAD_U = re.compile(r"^\s*(?:ừ|ừm|ừa|ờ ừ)\b[\s,.!]*", re.I)
 
 
 def humanize_reply(text: str, smart: bool = False) -> str:
-    text = limit_reply(dedupe_a(text), max_sents=4, max_words=64) if smart else limit_reply(dedupe_a(text))
+    text = limit_reply(dedupe_a(text), max_sents=6, max_words=90) if smart else limit_reply(dedupe_a(text))
     t2 = _LEAD_U.sub("", text)          # bot trẻ nói với 'anh' thì không mở lời bằng 'Ừ' (LLM hay quên luật này)
     if t2 and t2 != text:
         text = t2[0].upper() + t2[1:]
     return text
+
+
+# Mỗi lượt của vai thông minh một KIỂU nói khác nhau (quan tâm rồi hỏi, kể chuyện, trêu, đồng cảm, nghĩ ra tiếng...)
+# để khỏi đều đều như máy. LLM bám đúng số câu/kiểu được dặn nên code phải bốc ngẫu nhiên từng lượt.
+# (trọng số, chỉ dùng được từ lượt thứ mấy, mô tả)
+_TURN_SHAPES = [
+    (14, 1, "PHẢN ỨNG RẤT NGẮN: chỉ 1 câu 2-6 từ (cảm thán hoặc đồng cảm kiểu 'ủa thiệt hả', 'ờ… thương ghê'), KHÔNG hỏi lại, KHÔNG nói thêm."),
+    (16, 1, "QUAN TÂM RỒI HỎI: 1 câu quan tâm hoặc dặn nhẹ đúng điều anh vừa nói (mệt, ăn uống, nghỉ ngơi, đường đi), "
+            "rồi MỘT câu hỏi cụ thể, ngắn về anh. Tổng 2 câu."),
+    (16, 3, "KỂ CHUYỆN: em kể một chuyện nhỏ vừa xảy ra với em hôm nay (đang làm gì, thấy gì, nghe gì, ăn gì; chuyện đời thường, "
+            "không bịa tên riêng hay số liệu), 3-5 câu NGẮN, ngắt nhịp như người thật: có 'ờ', 'mà', 'tự nhiên', ngập ngừng '…', "
+            "có thể tự sửa lời giữa chừng. KẾT bằng một cảm nghĩ hoặc nói lửng, KHÔNG hỏi lại. "
+            "(Nếu anh đang mệt/buồn thì bỏ kiểu này, chỉ đồng cảm ngắn.)"),
+    (10, 1, "TRÊU/NŨNG: 1-2 câu, trêu anh nhẹ hoặc nũng nịu, có duyên, KHÔNG hỏi lại."),
+    (12, 3, "GÓC NHÌN: 2-3 câu, một nhận xét sắc hoặc góc nhìn mới về điều anh vừa nói (không nhắc lại ý anh), KHÔNG hỏi lại."),
+    (10, 3, "HỎI SÂU: chỉ MỘT câu hỏi mở ngắn, không mào đầu, không giải thích thêm."),
+    (10, 1, "Ở BÊN ANH: 1-2 câu dỗ dành, ấm áp, KHÔNG khuyên, KHÔNG hỏi lại."),
+    (8, 3, "NGHĨ RA TIẾNG: 2-3 câu, nói lửng một điều chợt nhớ ('à mà…', 'tự nhiên em nghĩ…') rồi quay lại chuyện của anh, giọng ngập ngừng tự nhiên."),
+]
+
+
+def turn_shape(history: list, turns: int = 99, rng=random) -> tuple[int, str]:
+    """Bốc kiểu lượt cho lượt này. history = các kiểu đã dùng (cũ -> mới); không tuyệt đối luân phiên cho giống người thật:
+    kiểu vừa dùng bị giảm xác suất (vẫn có thể lặp), nhưng không để 3 lượt liền cùng một kiểu.
+    turns = số lượt bot đã nói: mấy lượt đầu chỉ dùng các kiểu nhẹ (không kể chuyện/hỏi sâu).
+    Trả (chỉ số kiểu, dòng chỉ dẫn gắn cuối prompt)."""
+    idx, w = [], []
+    for i, (wt, min_turn, _) in enumerate(_TURN_SHAPES):
+        if turns < min_turn:
+            continue
+        if len(history) >= 2 and history[-1] == history[-2] == i:
+            continue
+        idx.append(i)
+        w.append(wt * (0.25 if history and history[-1] == i else 1.0))
+    i = rng.choices(idx, weights=w)[0]
+    return i, ("KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, ghi đè mọi quy định độ dài/câu hỏi khác kể cả NHỊP LƯỢT NÀY): "
+               + _TURN_SHAPES[i][2])
 
 
 def strip_farewell(text: str) -> str:
