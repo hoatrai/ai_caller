@@ -4,3 +4,10 @@ ai_caller.log
 ai_caller_state.json
 __pycache__/
 venv/
+voice_samples/
+voice_originals/
+voices_cache.json
+samples.log
+*.wav
+*.bak
+*.before_all

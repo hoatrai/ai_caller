@@ -22,15 +22,17 @@ def slug(s):
 
 
 items = {}
-for page in range(1, 21):
-    r = httpx.get(f"{API}/model", headers=H, timeout=30,
-                  params={"language": "vi", "page_size": 50, "page_number": page, "sort_by": "score"})
-    r.raise_for_status()
-    got = r.json().get("items", [])
-    for it in got:
-        items[it["_id"]] = it
-    if len(got) < 50:
-        break
+for sort in ("score", "task_count", "created_at"):      # mỗi kiểu sort chỉ lật được tối đa ~1000 giọng
+    for page in range(1, 201):
+        r = httpx.get(f"{API}/model", headers=H, timeout=30,
+                      params={"language": "vi", "page_size": 50, "page_number": page, "sort_by": sort})
+        r.raise_for_status()
+        got = r.json().get("items", [])
+        for it in got:
+            items[it["_id"]] = it
+        if len(got) < 50:
+            break
+    print(f"sort={sort}: tổng {len(items)}", flush=True)
 print(f"Tìm thấy {len(items)} giọng. Bắt đầu tạo file...", flush=True)
 
 ok = fail = skip = 0

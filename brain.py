@@ -477,6 +477,8 @@ class Brain:
         """Mỗi user một giọng cố định (hash username). Có danh sách ưu tiên (fish_voices_<gender>_top, vd giọng dễ thương):
         khoảng fish_top_ratio (mặc định 0.8) số user được xếp vào danh sách này, số còn lại dùng pool chung."""
         tts = self.cfg["tts"]
+        if os.getenv("FISH_VOICE_ID"):          # ép 1 giọng khi gọi thử: FISH_VOICE_ID=<id> python main.py ...
+            return os.getenv("FISH_VOICE_ID")
         g = "female" if gender == "female" else "male"
         pool = [v for v in (tts.get(f"fish_voices_{g}") or []) if v]
         top = [v for v in (tts.get(f"fish_voices_{g}_top") or []) if v]
