@@ -203,8 +203,8 @@ class CallSession:
             if not self.ended.is_set() and not self.room.closed.is_set():
                 # Chờ server trả lời + nghỉ chút để tin call_end kịp tới app TRƯỚC khi đóng WebRTC/WebSocket
                 # (trước đây đẩy xong là đóng ngay, app có thể không kịp nhận nên đồng hồ cuộc gọi cứ chạy tiếp).
-                reply = await self.room.push("call_end", {}, wait_reply=True, timeout=3.0)
-                log.info("📴 đã gửi call_end cho app (server trả lời: %s)", str(reply)[:150])
+                await self.room.push("call_end", {})      # server không trả lời sự kiện này (đã thử chờ: luôn timeout) nên không chờ reply
+                log.info("📴 đã gửi call_end cho app")
                 await asyncio.sleep(0.6)
             else:
                 log.info("📴 không gửi call_end (ended=%s, room_closed=%s, lý do=%s)",

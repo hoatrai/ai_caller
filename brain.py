@@ -513,16 +513,29 @@ class Brain:
                         headers={"Authorization": f"Bearer {key}"}, json=payload,
                         timeout=float(llm.get("smart_request_timeout_seconds", 10) if smart else llm.get("request_timeout_seconds", 6)))     # provider chậm thì bỏ qua, đừng để khách im 19s
                     if r.status_code == 429:
-                        self._llm_block[prov["model"]] = _time.monotonic() + cooldown
-                        log.warning("LLM %s bị 429 -> chuyển provider khác, nghỉ model này %.0fs", prov["model"], cooldown)
+                        # Groq ghi rõ vượt giới hạn nào (token/phút TPM hay token/ngày TPD) trong nội dung lỗi + header retry-after.
+                        ra = r.headers.get("retry-after")
+                        wait = cooldown
+                        try:
+                            if ra:
+                                wait = max(5.0, min(float(ra), 600.0))
+                        except ValueError:
+                            pass
+                        self._llm_block[prov["model"]] = _time.monotonic() + wait
+                        log.warning("LLM %s bị 429 -> chuyển provider khác, nghỉ model này %.0fs | retry-after=%s | %s",
+                                    prov["model"], wait, ra, (r.text or "")[:400].replace("\n", " "))
                         last_err = RuntimeError("HTTP 429")
                         break
                     if r.status_code >= 400:
                         raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-                    out = (r.json()["choices"][0]["message"]["content"] or "").strip()
+                    _j = r.json()
+                    out = (_j["choices"][0]["message"]["content"] or "").strip()
                     out = re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip()
                     if out:
-                        log.info("LLM trả lời bởi %s", prov["model"])
+                        _u = _j.get("usage") or {}
+                        _cached = ((_u.get("prompt_tokens_details") or {}).get("cached_tokens"))
+                        log.info("LLM trả lời bởi %s (token: vào %s, ra %s, tổng %s, cache %s)", prov["model"],
+                                 _u.get("prompt_tokens"), _u.get("completion_tokens"), _u.get("total_tokens"), _cached)
                         return out
                     log.warning("LLM %s trả về rỗng (có thể hết token do model suy luận)", prov["model"])
                 except Exception as e:
