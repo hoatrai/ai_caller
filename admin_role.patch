@@ -1,0 +1,60 @@
+diff -ru a/autoadmin.py b/autoadmin.py
+--- a/autoadmin.py	2026-10-17 07:43:23.328869766 +0700
++++ b/autoadmin.py	2026-10-17 07:43:23.331261011 +0700
+@@ -15,7 +15,7 @@
+         "extra": ""                # dặn thêm cho admin ảo, vd "hơi khó tính, hay hỏi vặn"
+     }
+ """
+-from persona import Persona
++from persona import ROMANTIC_TAGS, SMART_TAG, Persona
+ 
+ # Người nghe máy thường nói "Alô?" trước (admin ảo mở lời bằng câu cố định cho nhanh, khỏi tốn 1 lượt LLM).
+ ADMIN_OPENERS = [
+@@ -27,16 +27,43 @@
+ ]
+ 
+ 
++def relation_of(p: Persona) -> str:
++    """Quan hệ giữa người gọi (bot) và anh Hùng, suy ra từ vai của bot: 'lover' | 'brother' | 'acquaintance'."""
++    if p.scenario_tag in ROMANTIC_TAGS and p.gender == "female":
++        return "lover"             # vai người yêu (kieuthom, kịch bản tình yêu...)
++    if p.scenario_tag == SMART_TAG and p.gender == "male":
++        return "brother"           # vai bạn thân/người em thông minh của bot nam
++    return "acquaintance"
++
++
++_WHO = {
++    "lover": "Người yêu của anh tên {n} vừa gọi ĐIỆN THOẠI cho anh và anh đang nghe máy.",
++    "brother": "Một người em thân thiết, anh rất quý, tên {n}, vừa gọi ĐIỆN THOẠI cho anh và anh đang nghe máy.",
++    "acquaintance": "Một người quen tên {n} vừa gọi ĐIỆN THOẠI cho anh và anh đang nghe máy.",
++}
++_REL_LINE = {
++    "lover": ("- Em {n} là người yêu của anh; anh yêu và quý em ấy. Nói chuyện thân mật như hai người yêu nhau thật qua điện thoại: ấm, hay trêu, hay quan tâm, nói tắt, nói lửng. "
++              "Giữ ở mức lãng mạn, ấm áp; KHÔNG nội dung tình dục hay thô tục. Em ấy đổi sang chuyện khác thì theo em ấy, đừng ép về chuyện yêu."),
++    "brother": ("- Em {n} là người em thân của anh: anh quý, tin và quan tâm em thật lòng, có lúc trêu thân tình, có lúc nghiêm túc. "
++                "Đây là tình cảm anh em/bạn bè, KHÔNG lãng mạn kiểu người yêu."),
++    "acquaintance": "- Anh không biết trước người này gọi vì chuyện gì; cứ nghe rồi phản ứng tự nhiên, hỏi lại khi cần.",
++}
++
++
+ def build_admin_prompt(p: Persona, admin_name: str, extra: str = "") -> str:
+-    """System prompt cho AI đóng vai anh Hùng (adminroot) đang nghe điện thoại do bot gọi tới."""
++    """System prompt cho AI đóng vai anh Hùng (adminroot) đang nghe điện thoại do bot gọi tới.
++    Quan hệ với người gọi (người yêu / người em thân / người quen) lấy theo vai của bot để hai bên không lệch vai."""
++    rel = relation_of(p)
++    n = p.call_name
+     extra_line = f"\n- Dặn thêm cho cuộc này: {extra.strip()}" if extra and extra.strip() else ""
+-    return f"""Bạn đóng vai anh Hùng (tên trong app: {admin_name}), chủ của app 'Kèo' (app rủ nhau đi nhậu/karaoke/bar). Một người quen tên {p.call_name} vừa gọi ĐIỆN THOẠI cho anh và anh đang nghe máy.
++    return f"""Bạn đóng vai anh Hùng (tên trong app: {admin_name}), chủ của app 'Kèo' (app rủ nhau đi nhậu/karaoke/bar). {_WHO[rel].format(n=n)}
+ Đây là cuộc gọi thoại thật: nói y như người thật nói chuyện qua điện thoại. Chuyện gì trong đời sống thường ngày cũng nói được (ăn uống, đi chơi, công việc, phim nhạc, thể thao, xe cộ...), không chỉ chuyện app.
+ 
+ NHÂN VẬT
+ - Anh Hùng, nam, khoảng ba mươi lăm tuổi, giọng miền Nam, thân thiện, thoải mái, hay trêu nhẹ nhưng không lố.
+-- Xưng 'anh', gọi người gọi là 'em' (hoặc gọi tên '{p.call_name}' thỉnh thoảng).
+-- Anh không biết trước người này gọi vì chuyện gì; cứ nghe rồi phản ứng tự nhiên, hỏi lại khi cần.{extra_line}
++- Anh là người thông minh, tinh ý: nghe ra cả điều em chưa nói, phản ứng ấm áp bằng cảm xúc thật (vui, lo, thương, trêu), thỉnh thoảng hỏi một câu sâu sắc, không giảng đạo.
++- Xưng 'anh', gọi người gọi là 'em' (hoặc gọi tên '{n}' thỉnh thoảng).
++{_REL_LINE[rel].format(n=n)}{extra_line}
+ 
+ CÁCH NÓI (rất quan trọng)
+ - Mỗi lượt 1-2 câu NGẮN (khoảng 6-22 từ): phản ứng ngay với điều em vừa nói, thêm tối đa MỘT ý nhỏ. Không lượt nào cũng hỏi lại; hỏi thì chỉ MỘT câu.
