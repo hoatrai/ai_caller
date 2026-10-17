@@ -2,8 +2,8 @@
 """Thêm vai ĐẶC BIỆT cho tài khoản halinh: cô gái bị bỏ rơi khi có bầu, gọi cho "anh Hùng" (adminroot).
 
 Cách dùng (chạy trong thư mục ai_caller, chạy lại nhiều lần không sao):
-    python add_halinh_drama.py              # vá persona.py, brain.py, scenario_assignments.json
-    python main.py --config config.json --once --user halinh --scenario "bỏ rơi có bầu"
+    python3 add_halinh_drama.py              # vá persona.py, brain.py, scenario_assignments.json
+    python3 main.py --config config.json --once --user halinh --scenario "bỏ rơi có bầu"
 
 Sửa 3 file (có tạo .bak_halinh lần đầu):
   - persona.py: DRAMA_TAG/GOAL/MOOD, nhánh riêng trong make_persona
@@ -12,6 +12,7 @@ Sửa 3 file (có tạo .bak_halinh lần đầu):
 Chỉ gọi đúng adminroot như cũ (chốt chặn trong code không đổi).
 """
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -142,7 +143,10 @@ def patch_persona():
     anchor = "CHAT_TAGS = CHAT_TAGS | {SMART_TAG}\n"
     s = replace_once(s, anchor, anchor + PERSONA_ADD, "CHAT_TAGS | SMART_TAG")
     s = replace_once(s, PERSONA_BRANCH_OLD, PERSONA_BRANCH_NEW, "nhánh vai cố định trong make_persona")
-    s = replace_once(s, PERSONA_MOOD_OLD, PERSONA_MOOD_NEW, "dòng chọn mood")
+    m = re.search(r"^(    mood = SMART_MOOD if scenario_tag == SMART_TAG else )(.+)$", s, re.M)
+    if not m or s.count("mood = SMART_MOOD if scenario_tag == SMART_TAG else ") != 1:
+        sys.exit("[LỖI] không tìm thấy đúng 1 chỗ để vá: dòng chọn mood")
+    s = s[:m.start()] + m.group(1) + "(DRAMA_MOOD if scenario_tag == DRAMA_TAG else " + m.group(2) + ")" + s[m.end():]
     s = replace_once(s, PERSONA_TAIL_OLD, PERSONA_TAIL_NEW, "đoạn cuối make_persona")
     p.write_text(s, encoding="utf-8")
     print("persona.py: đã vá")
@@ -155,7 +159,13 @@ def patch_brain():
         print("brain.py: đã vá trước đó, bỏ qua")
         return
     backup(p)
-    s = replace_once(s, BRAIN_IMPORT_OLD, BRAIN_IMPORT_NEW, "import persona")
+    m = re.search(r"^from persona import (.+)$", s, re.M)
+    if not m or "SMART_TAG" not in m.group(1):
+        sys.exit("[LỖI] không tìm thấy dòng import persona trong brain.py")
+    names = [x.strip() for x in m.group(1).split(",")]
+    if "DRAMA_TAG" not in names:
+        names.insert(1, "DRAMA_TAG")
+    s = s[:m.start()] + "from persona import " + ", ".join(names) + s[m.end():]
     s = replace_once(s, "_SMART_BEATS = [", BRAIN_BLOCK + BRAIN_BEATS + "\n_SMART_BEATS = [", "_SMART_BEATS")
     s = replace_once(s, BRAIN_HINT_OLD, BRAIN_HINT_NEW, "stage_hint")
     s = replace_once(s, BRAIN_BLOCK_USE_OLD, BRAIN_BLOCK_USE_NEW, "build_system_prompt")
@@ -181,4 +191,4 @@ if __name__ == "__main__":
     patch_persona()
     patch_brain()
     patch_assign()
-    print("Xong. Thử: python main.py --config config.json --once --user halinh --scenario \"bỏ rơi có bầu\"")
+    print("Xong. Thử: python3 main.py --config config.json --once --user halinh --scenario \"bỏ rơi có bầu\"")
