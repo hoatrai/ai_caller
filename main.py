@@ -7,6 +7,8 @@ Chạy:
     python main.py --config config.json --once         # gọi thử 1 cuộc rồi thoát
     python main.py --config config.json --once --user duonganh --scenario "báo lỗi app"
     python main.py --config config.json --dry-run      # chỉ in ra sẽ gọi ai, không gọi
+    python main.py --config config.json --once --user moon --auto-admin
+        # chế độ auto-admin: adminroot bấm Nghe rồi chỉ NGHE (tắt mic), AI đóng vai adminroot nói chuyện với bot
 """
 import argparse
 import asyncio
@@ -68,7 +70,7 @@ def _load_assignments() -> dict:
         return {"users": {}, "prob": 0.0, "fixed": {}}
 
 
-async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=False):
+async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=False, auto_admin=False):
     accounts = cfg["accounts"]
     if not accounts:
         log.error("Không có tài khoản bot nào (accounts trống).")
@@ -109,7 +111,7 @@ async def one_call(cfg, brain, state, force_user=None, force_scenario=None, dry=
         return
 
     state.mark(bot["username"])
-    sess = CallSession(cfg, brain, bot, persona, admin_id)
+    sess = CallSession(cfg, brain, bot, persona, admin_id, auto_admin=auto_admin)
     try:
         res = await asyncio.wait_for(sess.run(), cfg["ring_timeout_seconds"] + max(cfg["max_call_seconds"], cfg.get("romantic_max_call_seconds", 3600)) + 90)
         log.info("Kết thúc cuộc gọi: %s", res)
@@ -135,7 +137,7 @@ async def amain(args):
         if not args.dry_run and hasattr(brain, "warmup"):
             await brain.warmup()      # nạp sẵn VieNeu nếu được bật (không bật thì bỏ qua ngay)
         if args.once or args.dry_run:
-            await one_call(cfg, brain, state, args.user, args.scenario, dry=args.dry_run)
+            await one_call(cfg, brain, state, args.user, args.scenario, dry=args.dry_run, auto_admin=args.auto_admin)
             return
         log.info("ai_caller chạy: gọi adminroot mỗi %d-%d giây", cfg["interval_min_seconds"],
                  cfg["interval_max_seconds"])
@@ -146,7 +148,7 @@ async def amain(args):
             if in_quiet_hours(cfg):
                 log.info("Đang trong giờ yên tĩnh — bỏ qua lượt này.")
             else:
-                await one_call(cfg, brain, state)
+                await one_call(cfg, brain, state, auto_admin=args.auto_admin)
             wait = random.uniform(cfg["interval_min_seconds"], cfg["interval_max_seconds"])
     finally:
         await brain.aclose()
@@ -159,6 +161,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--user")
     ap.add_argument("--scenario")
+    ap.add_argument("--auto-admin", action="store_true",
+                    help="adminroot chỉ nghe (tắt mic); AI đóng vai adminroot trả lời bot")
     args = ap.parse_args()
     try:
         asyncio.run(amain(args))

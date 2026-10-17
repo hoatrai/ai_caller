@@ -35,7 +35,7 @@ def headers():
 
 def list_voices(filters):
     found = {}
-    for page in range(1, 6):
+    for page in range(1, 21):
         r = httpx.get(f"{API}/model", headers=headers(), timeout=30,
                       params={"language": "vi", "page_size": 50, "page_number": page, "sort_by": "score"})
         r.raise_for_status()

@@ -18,10 +18,12 @@ from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSession
 from aiortc.mediastreams import MediaStreamError
 from aiortc.sdp import candidate_from_sdp
 
+from autoadmin import (ADMIN_OPENERS, admin_opener, admin_reply_limits, admin_turn_shape, build_admin_prompt,
+                       collapse_repeat, relation_of, southernize)
 from brain import (turn_shape, soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
-                   is_farewell, split_for_speech, split_sentences, strip_farewell)
+                   is_farewell, limit_reply, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
-from persona import ROMANTIC_TAGS, SMART_TAG, Persona, _fold
+from persona import HANH_TAG, ROMANTIC_TAGS, SMART_TAG, Persona, _fold
 from rhythm import jitter_rate, pause_after_ms, polish_chunk, silence_pcm
 from signaling import PhoenixRoom
 
@@ -99,9 +101,18 @@ def _wants_to_end(text: str) -> bool:
 class CallSession:
     BARGE_IN_MS = 600
 
-    def __init__(self, cfg: dict, brain: Brain, bot: dict, persona: Persona, admin_id: int):
+    def __init__(self, cfg: dict, brain: Brain, bot: dict, persona: Persona, admin_id: int, auto_admin: bool = False):
         self.cfg, self.brain, self.bot, self.persona = cfg, brain, bot, persona
         self.admin_id = admin_id
+        # Chế độ auto-admin: adminroot thật chỉ nghe, AI đóng vai adminroot trả lời bot (xem autoadmin.py).
+        self.auto_admin = auto_admin
+        _a = cfg.get("auto_admin") or {}
+        self._auto = _a
+        self._admin_system = ""
+        self._admin_shapes: list[int] = []     # các kiểu lượt admin ảo đã dùng (cho vai người yêu thông minh)
+        self.admin_vp = {"gender": _a.get("gender", "male"), "region": _a.get("region", "Nam"),
+                         "rate": _a.get("rate", ""), "pitch": _a.get("pitch", ""),
+                         "voice_key": _a.get("voice_key", "adminroot"), "voice_override": _a.get("gemini_voice", "")}
         # CHỐT AN TOÀN: phiên này chỉ được phép gọi đúng adminroot.
         if admin_id <= 0 or admin_id == bot["user_id"]:
             raise ValueError("admin_user_id không hợp lệ")
@@ -284,7 +295,8 @@ class CallSession:
         @self.pc.on("track")
         def _on_track(track):
             if track.kind == "audio":
-                self._tasks.append(asyncio.create_task(self._listen(track)))
+                # auto-admin: không nghe/không STT/không chen ngang (adminroot chỉ nghe), chỉ xả frame cho khỏi dồn bộ nhớ.
+                self._tasks.append(asyncio.create_task(self._drain(track) if self.auto_admin else self._listen(track)))
 
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
@@ -300,6 +312,13 @@ class CallSession:
         log.info("⏱ gửi offer sau %.1fs kể từ lúc nghe máy", self._t_offer - getattr(self, "_t_accept", self._t_offer))
 
     # ---------------- nghe
+    async def _drain(self, track):
+        while not self.ended.is_set():
+            try:
+                await track.recv()
+            except Exception:
+                break
+
     async def _listen(self, track):
         resample = FrameResampler16k()
         det = UtteranceDetector(silence_ms=int(self.cfg.get("vad_silence_ms", 600)),
@@ -346,10 +365,14 @@ class CallSession:
                 await self._utt_q.put(utt)
 
     # ---------------- nói
-    async def say(self, text: str, gemini: bool = False):
+    async def say(self, text: str, gemini: bool = False, vp: Optional[dict] = None):
+        """vp: hồ sơ giọng khác (gender/region/rate/pitch/voice_key/voice_override), dùng cho admin ảo. None = giọng của bot."""
         text = clean_for_speech(text)
         if not text:
             return
+        vp = vp or {"gender": self.persona.gender, "region": self.persona.region, "rate": self.persona.tts_rate,
+                    "pitch": self.persona.tts_pitch, "voice_key": self.persona.username,
+                    "voice_override": self.persona.gemini_voice}
         self._interrupted = False
         if self._engine_task is not None and not self.engine:
             try:
@@ -364,14 +387,14 @@ class CallSession:
         sentences = [text] if one_chunk else split_for_speech(text)
         human = bool(tts_cfg.get("human_rhythm", True))
         scale = float(tts_cfg.get("pause_scale", 1.0))
-        base_rate = self.persona.tts_rate or tts_cfg.get("rate", "")
-        rates = [jitter_rate(base_rate, s_) if human else self.persona.tts_rate for s_ in sentences]
+        base_rate = vp["rate"] or tts_cfg.get("rate", "")
+        rates = [jitter_rate(base_rate, s_) if human else vp["rate"] for s_ in sentences]
         t_say = time.perf_counter()
         first = True
-        tasks = [asyncio.create_task(self.brain.synth(s_, self.persona.gender, rates[i], self.persona.region,
-                                                   self.persona.tts_pitch, gemini=gemini,
-                                                   voice_key=self.persona.username,
-                                                   voice_override=self.persona.gemini_voice,
+        tasks = [asyncio.create_task(self.brain.synth(s_, vp["gender"], rates[i], vp["region"],
+                                                   vp["pitch"], gemini=gemini,
+                                                   voice_key=vp["voice_key"],
+                                                   voice_override=vp["voice_override"],
                                                    engine=self.engine)) for i, s_ in enumerate(sentences)]
         try:
             for i, t in enumerate(tasks):
@@ -429,7 +452,7 @@ class CallSession:
 
     async def _reply_with_filler(self, system: str, history: list[dict]) -> str:
         """Gọi LLM; nếu quá lâu chưa có câu trả lời thì nói 1 tiếng đệm ('ờm...') như người đang nghĩ, khỏi im bặt."""
-        task = asyncio.create_task(self.brain.reply(system, history, smart=(self.persona.scenario_tag == SMART_TAG)))
+        task = asyncio.create_task(self.brain.reply(system, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG))))
         try:
             tts_cfg = self.cfg["tts"]
             if self.turns >= 1 and self._fillers and tts_cfg.get("human_rhythm", True) and tts_cfg.get("filler", True):
@@ -451,6 +474,45 @@ class CallSession:
         except asyncio.TimeoutError:
             return None
 
+    # ---------------- auto-admin: AI đóng vai adminroot (người thật chỉ nghe)
+    async def _auto_admin_open(self, admin_hist: list[dict]) -> str:
+        """Admin ảo nhấc máy nói 'Alô' trước (giống người thật), rồi bot mới mở lời."""
+        line = admin_opener(self.persona)
+        admin_hist.append({"role": "assistant", "content": line})
+        log.info("🧑‍💼 adminroot(AI): %s", line)
+        await self.say(line, vp=self.admin_vp)
+        return line
+
+    async def _auto_admin_reply(self, bot_line: str, admin_hist: list[dict]) -> str:
+        """Đưa lời bot cho admin ảo, lấy câu đáp, đọc ra bằng giọng riêng. Trả '' nếu LLM hỏng."""
+        admin_hist.append({"role": "user", "content": bot_line})
+        if len(admin_hist) > 24:
+            del admin_hist[:-24]
+        await asyncio.sleep(random.uniform(0.3, 0.9))       # nghỉ nhẹ như người thật nghĩ trước khi đáp
+        reply = ""
+        rel = relation_of(self.persona)
+        system, smart = self._admin_system, False
+        if rel == "lover":      # vai người yêu thông minh: mỗi lượt một kiểu nói, model suy luận kỹ hơn (tắt: auto_admin.smart=false)
+            si, hint = admin_turn_shape(self._admin_shapes, len(self._admin_shapes))
+            self._admin_shapes.append(si)
+            log.info("🎲 admin kiểu lượt #%d", si)
+            system = self._admin_system + "\n\n" + hint
+            smart = bool(self._auto.get("smart", True))
+        for _ in range(2):
+            reply = await self.brain.reply(system, admin_hist, smart=smart)
+            if reply or self.ended.is_set():
+                break
+            await asyncio.sleep(2.0)
+        _ms, _mw = admin_reply_limits(rel)
+        reply = limit_reply(collapse_repeat(southernize(clean_for_speech(reply))), max_sents=_ms, max_words=_mw) if reply else ""
+        if not reply:
+            admin_hist.pop()
+            return ""
+        admin_hist.append({"role": "assistant", "content": reply})
+        log.info("🧑‍💼 adminroot(AI): %s", reply)
+        await self.say(reply, vp=self.admin_vp)
+        return reply
+
     # ---------------- hội thoại
     async def _conversation(self):
         cfg = self.cfg
@@ -465,25 +527,39 @@ class CallSession:
             deadline = time.time() + int(cfg.get("romantic_max_call_seconds", 3600))     # mặc định tối đa 1 giờ
         reason = "ended_by_peer"
         shape_hist: list[int] = []     # các kiểu lượt đã dùng (vai thông minh bốc kiểu khác nhau mỗi lượt)
+        admin_hist: list[dict] = []    # lịch sử của admin ảo (vai đảo: lời bot = user, lời admin ảo = assistant)
+        auto_max_turns = int(self._auto.get("max_turns", 20))
+        if self.auto_admin:
+            deadline = time.time() + int(self._auto.get("max_seconds", 300))      # auto: giới hạn riêng, kể cả vai tình yêu
+            self._admin_system = build_admin_prompt(self.persona, cfg["admin_username"], self._auto.get("extra", ""))
+            log.info("🎭 auto-admin BẬT: adminroot chỉ nghe, AI trả lời bot (tối đa %d lượt / %ds)",
+                     auto_max_turns, int(self._auto.get("max_seconds", 300)))
 
-        # Người nghe máy thường nói "Alô?" trước.
-        utt = await self._next_utterance(float(cfg.get("first_alo_wait_seconds", 3.0)))   # chờ "Alô?" ngắn thôi, im lâu quá thì bot mở lời
-        heard = await self.brain.transcribe(utt, self.bot["token"]) if utt is not None else ""
+        if self.auto_admin:
+            heard = await self._auto_admin_open(admin_hist)
+        else:
+            # Người nghe máy thường nói "Alô?" trước.
+            utt = await self._next_utterance(float(cfg.get("first_alo_wait_seconds", 3.0)))   # chờ "Alô?" ngắn thôi, im lâu quá thì bot mở lời
+            heard = await self.brain.transcribe(utt, self.bot["token"]) if utt is not None else ""
         history.append({"role": "user",
                         "content": heard or "(anh Hùng vừa bắt máy, chưa nói gì — bạn mở lời trước)"})
 
         while not self.ended.is_set():
-            if time.time() > deadline:
+            if time.time() > deadline or (self.auto_admin and self.turns >= auto_max_turns):
                 reason = "max_call_seconds"
-                await self.say(random.choice([
+                await self.say(random.choice(["Thôi em cúp nha, thương anh. Mai mình nói chuyện tiếp ha.",
+                     "Em phải đi rồi nè... nhớ anh nghen. Ngủ ngon, mai gọi lại.",
+                     "Ui hết giờ rồi. Thương anh nhiều, bye bye nghen."] if romantic else [
                     "Dạ thôi em không làm phiền anh nữa nha, chào anh.",
                     "Dạ vậy nha anh, em cúp máy nghen, chào anh.",
                 ]))
                 break
 
             t_llm = time.perf_counter()
-            end_hint = ("\n\nANH HÙNG VỪA NÓI MUỐN CÚP MÁY: hãy chào tạm biệt thật dịu dàng, ngắn gọn (không hỏi thêm gì) rồi THÊM thẻ cúp máy ở cuối câu chào."
+            end_hint = ("\n\nANH HÙNG VỪA NÓI MUỐN CÚP MÁY: chào tạm biệt kiểu NGƯỜI YÊU, 1-2 câu ngắn, ấm và hơi lưu luyến: dặn nhẹ một câu (ngủ ngon / nghỉ ngơi / đi đường cẩn thận), hẹn nói chuyện tiếp, nói 'thương anh'. TUYỆT ĐỐI KHÔNG dùng 'không làm phiền', 'chào anh', 'xin phép', giọng lịch sự xã giao. Không hỏi thêm gì. Rồi THÊM thẻ cúp máy ở cuối câu chào."
                         if end_requested else "")
+            if end_requested and self.persona.scenario_tag == HANH_TAG:
+                end_hint = "\n\nANH HÙNG VỪA NÓI MUỐN CÚP MÁY: em nghẹn lại, nói MỘT câu cuối thật ngắn, không hỏi thêm, không chào xã giao, PHẢI có chữ 'em cúp máy' (ví dụ 'Vậy thôi... em cúp máy.'), rồi THÊM thẻ cúp máy ở cuối."
             turn_prompt = system + "\n\n" + stage_hint(self.turns, self.persona.scenario_tag, self.persona.opener) + end_hint
             if self.persona.scenario_tag == SMART_TAG and not end_requested and self.turns >= 1:
                 shape_i, shape_line = turn_shape(shape_hist, self.turns)
@@ -503,7 +579,7 @@ class CallSession:
                         ]))
                     await asyncio.sleep(float(cfg.get("llm_retry_wait_seconds", 5)))
                     log.info("Thử lại LLM lần %d sau khi tất cả provider lỗi", k + 1)
-                    reply = await self.brain.reply(turn_prompt, history, smart=(self.persona.scenario_tag == SMART_TAG))
+                    reply = await self.brain.reply(turn_prompt, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG)))
                     if reply:
                         break
             if not reply:      # LLM hỏng hẳn: nói câu an toàn rồi kết thúc, đừng im lặng
@@ -512,7 +588,7 @@ class CallSession:
                 break
             hangup = HANGUP_TAG in reply
             suppressed = False
-            if romantic:
+            if romantic and self.persona.scenario_tag != HANH_TAG:
                 if hangup and not end_requested:
                     log.info("Bỏ thẻ cúp máy: kịch bản tình yêu, anh Hùng chưa nói cúp máy")
                     hangup = False
@@ -521,8 +597,8 @@ class CallSession:
                 log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
                 hangup = False
                 suppressed = True
-            spoken = humanize_reply(clean_for_speech(reply), smart=(self.persona.scenario_tag == SMART_TAG))
-            if romantic:
+            spoken = humanize_reply(clean_for_speech(reply), smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG)))
+            if romantic and self.persona.scenario_tag != HANH_TAG:
                 spoken = soften_vocative(spoken, history)
             if hangup and not is_farewell(spoken):
                 # Chỉ cúp khi câu thật sự là lời chào tạm biệt, không phải câu hỏi (tránh cúp ngang lúc đang hỏi anh).
@@ -546,6 +622,11 @@ class CallSession:
             # đòi "anh nói lại"; chỉ khi liên tiếp nhiều lần mới hỏi lại.
             heard, stop, ignored = "", False, 0
             while True:
+                if self.auto_admin:      # admin ảo đáp thay người thật (không STT, không chờ im lặng)
+                    heard = await self._auto_admin_reply(spoken, admin_hist)
+                    if not heard:
+                        reason, stop = "auto_admin_failed", True
+                    break
                 utt = await self._next_utterance(cfg["idle_hangup_seconds"])
                 if utt is None:
                     idle += 1

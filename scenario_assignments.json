@@ -44,7 +44,9 @@
     "vypham": "rủ người yêu đi hẹn hò"
   },
   "fixed_users": {
-    "kieuthom": "người yêu thông minh"
+    "kieuthom": "người yêu thông minh",
+    "hanhtay": "báo có thai bị bỏ rơi",
+    "halinh": "bỏ rơi có bầu"
   },
   "_ghi_chu_fixed": "fixed_users: user -> vai cố định, luôn dùng (không theo xác suất). 'người yêu thông minh' chỉ giao cho user ở đây."
 }

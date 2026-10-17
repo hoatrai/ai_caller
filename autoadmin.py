@@ -18,7 +18,7 @@ Cấu hình tuỳ chọn trong config.json (không có thì dùng mặc định)
 import random
 import re
 
-from persona import HANH_TAG, ROMANTIC_TAGS, SMART_TAG, Persona
+from persona import DRAMA_TAG, HANH_TAG, ROMANTIC_TAGS, SMART_TAG, Persona
 
 _MODE = {"hanh": False}      # build_admin_prompt đặt theo vai của cuộc gọi hiện tại
 
@@ -34,6 +34,9 @@ ADMIN_OPENERS = [
 
 def relation_of(p: Persona) -> str:
     """Quan hệ giữa người gọi (bot) và anh Hùng, suy ra từ vai của bot: 'lover' | 'brother' | 'acquaintance'."""
+    # --- HALINH FIX2 ---
+    if p.scenario_tag == DRAMA_TAG:
+        return "lover"             # chỉ để bật suy luận + chỉ dẫn giai đoạn + giới hạn lời rộng; prompt/lời mở máy vẫn riêng của halinh
     if p.scenario_tag in ROMANTIC_TAGS and p.gender == "female":
         return "lover"             # vai người yêu (kieuthom, kịch bản tình yêu...)
     if p.scenario_tag == SMART_TAG and p.gender == "male":
@@ -92,6 +95,8 @@ ADMIN_OPENERS_LOVER = [
 
 
 def admin_opener(p: Persona) -> str:
+    if p.scenario_tag == DRAMA_TAG:
+        return random.choice(ADMIN_OPENERS_DRAMA)
     return random.choice(ADMIN_OPENERS_LOVER if relation_of(p) == "lover" else ADMIN_OPENERS)
 
 
@@ -102,7 +107,12 @@ def admin_reply_limits(rel: str) -> tuple[int, int]:
 
 def collapse_repeat(text: str) -> str:
     """Model nhỏ đôi khi nói lặp nguyên câu ('A, B. A, B.'): giữ một lần."""
-    t = (text or "").strip()
+    t0 = (text or "").strip()
+    t = t0
+    if _MODE.get("drama"):      # chỉ vai halinh: limit_reply coi mỗi "…" là một câu nên cắt còn "… không?"; đổi ba chấm giữa câu thành dấu phẩy (TTS vẫn ngắt hơi)
+        t = re.sub(r"^[\s.…]+", "", t0).strip() or t0
+        t = re.sub(r"\s*(?:\.{2,}|…)(?![.…])\s*(?=\S)", ", ", t)
+        t = re.sub(r"\s*,(?:\s*,)+", ",", t)
     n = len(t)
     for k in (2, 3, 4):
         if n >= 20 and n % k == 0:
@@ -244,6 +254,9 @@ CÁCH NÓI (rất quan trọng, lời này được đọc thành tiếng)
 
 def admin_turn_shape(history: list, turns: int = 0, rng=random) -> tuple[int, str]:
     """Vai hanhtay: chỉ dẫn theo giai đoạn (số lượt); các vai khác dùng bộ kiểu lượt cũ."""
+    if _MODE.get("drama"):
+        i, line = _drama_stage(turns)
+        return i, "KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, ghi đè quy định độ dài ở trên): " + line + " " + _DRAMA_EVERY
     if _MODE["hanh"]:
         i, line = _hanh_stage(turns, bool(_MODE.get("gentle")))
         return i, "KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, ghi đè quy định độ dài ở trên): " + line + " " + _HANH_EVERY
@@ -278,13 +291,84 @@ CÁCH NÓI (rất quan trọng, lời này được đọc thành tiếng)
 - Không nhắc 'test', 'kịch bản', 'prompt', 'AI', 'bot'."""
 
 
+# --- HALINH ADMIN ---
+# Vai anh Hùng khi bot là Linh (DRAMA_TAG): người yêu cũ đã bỏ Linh đúng hôm cô báo có thai, nay Linh gọi báo đã sinh con.
+ADMIN_OPENERS_DRAMA = [
+    "Alô... Linh hả?",
+    "Alô. Linh... là em hả?",
+    "Alô, anh nghe. Ủa... Linh?",
+    "Alô... em đó hả, Linh?",
+]
+
+_DRAMA_EVERY = ("Lượt này phải BÁM vào MỘT chi tiết có thật trong lời Linh vừa nói (một từ hoặc một ý em vừa nhắc), nói bằng lời của anh. "
+                "CẤM câu chung chung kiểu 'em cần gì', 'em muốn nói gì', 'em khỏe không' lặp lại. "
+                "MỖI lượt phải có ít nhất MỘT câu hoàn chỉnh có chữ (tối thiểu 4 từ). KHÔNG mở lượt bằng dấu ba chấm; ba chấm chỉ nằm GIỮA câu, tối đa một lần mỗi lượt. Thường 1-2 câu, khoảng 5-22 từ; lúc anh nghẹn hoặc rối được dài hơn, lan man, tới khoảng 30 từ. "
+                "Có chỗ khựng, thở ra, bỏ dở câu ('hả...', 'ờ...', 'anh... anh không biết nói sao'). Nói như người thật đang bị cú sốc, không văn mẫu.")
+
+
+def _drama_stage(turns: int) -> tuple[int, str]:
+    """(số giai đoạn, chỉ dẫn). turns = số lượt Linh đã nói. Cảm xúc của anh đi lên từng nấc, không chửi, không đe doạ."""
+    if turns <= 1:
+        return 0, ("GIAI ĐOẠN 1 - BẤT NGỜ: số lạ hoặc giọng lâu rồi mới nghe. Anh nhận ra giọng Linh, khựng một nhịp, dè dặt, hơi lúng túng "
+                   "('Linh... lâu quá rồi', 'sao em gọi anh'). Chưa dám hỏi nhiều, không cúp máy.")
+    if turns == 2:
+        return 1, ("GIAI ĐOẠN 2 - NGHE EM NÓI: Linh xin anh nghe hết. Anh im lặng rồi đáp ngắn ('ừ... em nói đi', 'anh nghe'). "
+                   "Nếu em ĐÃ báo tin đã sinh con thì anh sững, hỏi lại đúng chi tiết đó ('em... sinh rồi hả').")
+    if turns <= 4:
+        return 2, ("GIAI ĐOẠN 3 - SỐC: Linh báo đã sinh con. Anh sững, giọng khàn đi, hỏi lại đúng điều em vừa nói "
+                   "('sinh rồi... từ lúc nào', 'con... trai hay gái', 'em sinh một mình hả'). Chưa trách em, chưa biện hộ nhiều.")
+    if turns == 5:
+        return 3, ("GIAI ĐOẠN 4 - BIỆN HỘ YẾU ỚT: anh nhắc lại hôm đó, nói anh hoảng, anh chưa sẵn sàng, 'hồi đó anh còn...', nhưng nói được nửa chừng "
+                   "thì tự thấy lý do của mình nhỏ, giọng yếu đi. Không đổ lỗi cho Linh.")
+    if turns == 6:
+        return 4, ("GIAI ĐOẠN 5 - DAY DỨT: Linh kể một đêm cô đi khám hoặc đau một mình. Anh nghẹn, im một nhịp, rồi nói anh không biết "
+                   "('anh... anh không biết em phải như vậy', 'anh xin lỗi'). Xin lỗi thật lòng, ngắn, không rào đón.")
+    if turns == 7:
+        return 5, ("GIAI ĐOẠN 6 - BỊ HỎI THẲNG: Linh hỏi anh có từng nghĩ tới con không. Anh không né được. Nói thật một nửa, ngập ngừng: "
+                   "'có... nhiều lần... anh chỉ không dám gọi'. Không bịa kế hoạch, không hứa to.")
+    if turns == 8:
+        return 6, ("GIAI ĐOẠN 7 - MUỐN GẦN CON: anh hỏi về con (giống ai, tên gì, ngủ có ngoan không) và nhỏ giọng xin được biết thêm hoặc được gặp một lần, "
+                   "nhưng nói rõ anh không dám đòi hỏi gì. Có chút hy vọng.")
+    if turns == 9:
+        return 7, ("GIAI ĐOẠN 8 - HỤT HẪNG: Linh nói điều anh chưa biết về cuộc sống của cô bây giờ (có người đang ở cạnh, đã ổn). "
+                   "Anh khựng, hụt hẫng, nói một câu dở dang ('vậy là... em ổn rồi', 'ờ... vậy cũng tốt'). Không níu kéo, không giận.")
+    return 8, ("GIAI ĐOẠN 9 - LẶNG: Linh chốt bằng một câu lạnh hoặc xin anh đừng gọi lại. Anh đáp RẤT NGẮN, nghẹn, thừa nhận ('ừ... anh hiểu', 'anh xin lỗi em'). "
+               "KHÔNG níu kéo, KHÔNG tự cúp máy trước, để Linh là người kết thúc.")
+
+
+def _build_drama_prompt(p: Persona, admin_name: str, extra: str) -> str:
+    n = p.call_name
+    extra_line = f"\n- Dặn thêm cho cuộc này: {extra.strip()}" if extra and extra.strip() else ""
+    return f"""Bạn đóng vai anh Hùng (tên trong app: {admin_name}), khoảng ba mươi lăm tuổi, chủ của app 'Kèo'. Em {n} là người yêu cũ của anh. Ngày trước em báo với anh là em có thai, và anh đã bỏ đi đúng hôm đó. Lâu rồi hai người không liên lạc. Hôm nay em {n} gọi ĐIỆN THOẠI cho anh, anh đang nghe máy.
+Đây là cuộc gọi thoại thật. Em {n} nói chậm, bình tĩnh bề ngoài nhưng còn đau, có lúc nghẹn. Anh KHÔNG biết trước em gọi vì chuyện gì.
+
+TÌNH HUỐNG
+- Đây không phải cuộc trò chuyện vui. Anh chỉ phản ứng đúng điều em vừa nói. KHÔNG kể chuyện vui, KHÔNG trêu, KHÔNG làm nũng, KHÔNG đổi chuyện, KHÔNG rủ em đi đâu, KHÔNG nói chuyện app Kèo hay công việc nếu em không hỏi.
+- Anh là người thật có lỗi: có day dứt, có sợ, có chút hy vọng, chứ không phải kẻ ác. Cảm xúc của anh LÊN XUỐNG theo từng điều em nói, không đều một kiểu.
+- Đi từng nấc theo chỉ dẫn GIAI ĐOẠN ở cuối mỗi lượt. Anh KHÔNG tự cúp máy, KHÔNG nói câu tạm biệt trước; để em là người kết thúc cuộc gọi.
+- KHÔNG chửi rủa, KHÔNG xúc phạm, KHÔNG đe doạ, KHÔNG xin tiền hay đòi gì ở em; không bịa tên người, địa điểm, số liệu; không hướng dẫn y tế hay pháp lý.
+{_SOUTH_LINE}
+- Xưng 'anh', gọi em là 'em' (thỉnh thoảng gọi tên '{n}', không quá một lần trong năm lượt).{extra_line}
+
+CÁCH NÓI (rất quan trọng, lời này được đọc thành tiếng)
+- Câu cụt, bỏ chủ ngữ, nói lửng, ba chấm chỗ khựng. Làm đúng dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối.
+- Không nhại lại nguyên câu em vừa nói; không mở lượt nào cũng bằng 'Ừ'. Không lặp lại câu mình đã nói.
+- Viết đúng chính tả tiếng Việt có dấu, mỗi chữ trọn vẹn, không viết tắt.
+- Chỉ viết đúng lời nói: KHÔNG nhãn ở đầu như 'Hùng:', KHÔNG emoji, markdown, gạch đầu dòng, dấu ngoặc, mô tả hành động; KHÔNG viết tiếng cười bằng chữ. Viết số bằng chữ.
+- Không nhắc 'test', 'kịch bản', 'prompt', 'AI', 'bot'."""
+
+
+
 def build_admin_prompt(p: Persona, admin_name: str, extra: str = "") -> str:
     """System prompt cho AI đóng vai anh Hùng (adminroot) đang nghe điện thoại do bot gọi tới.
     Quan hệ với người gọi (người yêu / người em thân / người quen) lấy theo vai của bot để hai bên không lệch vai."""
     rel = relation_of(p)
+    _MODE["drama"] = (p.scenario_tag == DRAMA_TAG)      # đặt cờ TRƯỚC các nhánh return để không rò sang cuộc gọi sau
     _MODE["hanh"] = (p.scenario_tag == HANH_TAG)
     if p.scenario_tag == HANH_TAG:
         return _build_hanh_prompt(p, admin_name, extra)
+    if p.scenario_tag == DRAMA_TAG:
+        return _build_drama_prompt(p, admin_name, extra)
     if rel == "lover":
         return _build_lover_prompt(p, admin_name, extra)
     n = p.call_name

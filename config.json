@@ -38,7 +38,7 @@
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "model": "gemini-3.1-flash-lite",
         "api_key_env": "GEMINI_API_KEY",
-        "enabled": false,
+        "enabled": true,
         "smart_ok": true
       },
       {
@@ -1054,7 +1054,7 @@
       "nikenhouse": "mien tay 1",
       "bemay": "dieu dang 1",
       "kioaoa": "Mạnh Dũng",
-      "halinh": "nam bac 1",
+      "halinh": "mien tay 1",
       "camgiang": "Adam",
       "phuongthuy1": "mien tay 1",
       "thuytranggame": "dieu dang 1",
@@ -1151,12 +1151,20 @@
       "y.huynh": "mien tay 1",
       "d.huynh": "Mạnh Dũng",
       "vinh.n": "nam bac 1",
-      "hoang.vinh": "Adam"
+      "hoang.vinh": "Adam",
+      "adminroot": "Adam"
+    },
+    "fish_voice_map": {
+      "adminroot": "a210124241a04ce18d52c636520f0af0"
     }
   },
   "ice_servers": [
     {
       "urls": "stun:stun.l.google.com:19302"
     }
-  ]
+  ],
+  "auto_admin": {
+    "max_turns": 40,
+    "max_seconds": 900
+  }
 }

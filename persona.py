@@ -91,6 +91,30 @@ SMART_GOAL = ("Gọi cho anh Hùng, người yêu của em, để trò chuyện 
 SMART_MOOD = "ấm áp, tự nhiên, giàu cảm xúc, hay đổi nhịp (lúc ngắn gọn, lúc ngập ngừng, lúc trêu), chú tâm lắng nghe anh"
 ROMANTIC_TAGS = ROMANTIC_TAGS | {SMART_TAG}
 CHAT_TAGS = CHAT_TAGS | {SMART_TAG}
+
+# --- HALINH DRAMA ---
+# Vai ĐẶC BIỆT cho halinh: người yêu cũ bị bỏ rơi khi có bầu, gọi cho anh Hùng (kịch bản quay màn hình làm truyện).
+# Chỉ giao qua fixed_users trong scenario_assignments.json, không có trong bốc ngẫu nhiên.
+DRAMA_TAG = "bỏ rơi có bầu"
+DRAMA_GOAL = ("Gọi cho anh Hùng, người yêu cũ đã bỏ em đúng lúc em báo có thai. Em KHÔNG gọi để xin tiền hay xin anh chịu trách nhiệm. "
+              "Em gọi để báo một tin: em đã sinh con, và để nói ra những điều em đã nuốt trong suốt thời gian đó. "
+              "Em bình tĩnh bề ngoài nhưng bên trong còn đau; anh phản ứng thế nào thì em đáp theo thế đó.")
+DRAMA_MOOD = "bình tĩnh đến lạnh, đôi lúc giọng run, nghẹn rồi cố nói tiếp, không khóc lóc ầm ĩ"
+DRAMA_OPENERS = [
+    "Alo. Anh Hùng, em Linh đây. Anh đừng cúp máy vội.",
+    "Alo… là em. Anh nghe em nói một phút thôi.",
+    "Anh còn lưu số em à? Em Linh nè.",
+    "Alo anh. Em gọi báo anh một chuyện, nói xong em cúp.",
+]
+CHAT_TAGS = CHAT_TAGS | {DRAMA_TAG}
+
+HANH_TAG = 'báo có thai bị bỏ rơi'
+HANH_GOAL = 'Gọi cho anh Hùng, người yêu của em, để báo một chuyện rất hệ trọng: em vừa phát hiện mình có thai. Em mới 18 tuổi, vừa học xong lớp 12 và đang trong mùa thi đại học, rất hoang mang, sợ ba mẹ biết, sợ dang dở việc học, không biết phải làm sao. Em cần anh ở bên và cùng nghĩ cách. Em không nói ra ngay, ấp úng mãi mới dám nói.'
+HANH_MOOD = 'run rẩy, hoảng và sợ, nói chậm, hay ngập ngừng, giọng nghẹn, cố giữ bình tĩnh nhưng rất dễ vỡ'
+HANH_BACK = 'tên Hạnh, 18 tuổi, vừa học xong lớp 12, đang trong mùa thi đại học; ở với ba mẹ, ba mẹ rất nghiêm và kỳ vọng em đậu đại học; em và anh Hùng yêu nhau một thời gian, em rất thương và tin anh; em mới thử que hai lần (hai vạch), chưa dám đi khám.'
+HANH_OPENERS = ['Alo... anh hả?', 'Alo anh... anh đang ở đâu vậy?', 'Alo... anh nghe em được không?', 'Anh... em nè.']
+ROMANTIC_TAGS = ROMANTIC_TAGS | {HANH_TAG}
+CHAT_TAGS = CHAT_TAGS | {HANH_TAG}
 ROMANTIC_OPENERS = [
     "Alo, em nè.",
     "Alo, anh đang làm gì đó?",
@@ -315,11 +339,17 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
     if scenario_tag == SMART_TAG:       # vai cố định: luôn là nữ, người yêu thông minh
         goal, tag = SMART_GOAL, SMART_TAG
         gender, gender_why = "female", "vai cố định (người yêu thông minh)"
+    elif scenario_tag == HANH_TAG:      # vai cố định: cô gái 18 tuổi báo có thai
+        goal, tag = HANH_GOAL, HANH_TAG
+        gender, gender_why = "female", "vai cố định (báo có thai)"
+    elif scenario_tag == DRAMA_TAG:     # vai cố định: halinh, luôn là nữ
+        goal, tag = DRAMA_GOAL, DRAMA_TAG
+        gender, gender_why = "female", "vai cố định (bỏ rơi có bầu)"
     else:
         goal, tag = rng.choice(pool)
     region, style = rng.choice(REGIONS)
     nick = ""
-    mood = SMART_MOOD if scenario_tag == SMART_TAG else rng.choice(MOODS)
+    mood = SMART_MOOD if scenario_tag == SMART_TAG else (DRAMA_MOOD if scenario_tag == DRAMA_TAG else (HANH_MOOD if scenario_tag == HANH_TAG else rng.choice(MOODS)))
     # Mỗi user 1 "chất giọng" riêng cố định theo username (cao độ + tốc độ nền), tâm trạng mỗi cuộc chỉ nhích nhẹ tốc độ.
     h = int(hashlib.md5(username.encode()).hexdigest(), 16)
     if gender == "female":
@@ -359,10 +389,26 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         backstory=(f"{rng.choice(JOBS)}, ở {rng.choice(DISTRICTS)}, hay đi chơi với {rng.choice(GROUPS)}; "
                    f"gần đây: {rng.choice(RECENT)}."),
     )
+    if tag == DRAMA_TAG:
+        _p.nick = "Linh"
+        _p.age = rng.randint(24, 28)
+        _p.charm = "ít lời, câu ngắn, nói điều nặng bằng giọng nhẹ; im một nhịp trước khi nói câu quan trọng"
+        _p.opener = rng.choice(DRAMA_OPENERS)
+        _p.facts = (f"con {rng.choice(['trai', 'gái'])} được {rng.choice(['hai', 'ba', 'bốn'])} tháng tuổi, giống anh Hùng như đúc, "
+                    f"em sinh ở bệnh viện và tự nuôi một mình; ngày anh bỏ đi là đúng hôm em báo có thai")
+        _p.backstory = ("từng yêu anh Hùng, bị anh bỏ lại khi báo có thai, một mình đi khám thai và sinh con; "
+                        "bây giờ ổn hơn nhưng vẫn nhớ từng câu anh đã nói hôm đó.")
     if tag == SMART_TAG:
         _p.age = rng.randint(28, 33)
         _p.charm = "tinh tế, sắc sảo, hóm hỉnh vừa đủ, biết nói điều đúng lúc"
         _p.facts = ""
         _p.backstory = ("người rất tinh ý, hay quan sát và đọc được tâm trạng của anh qua giọng nói; thích những câu hỏi khiến người ta nghĩ sâu hơn; "
                         "hay quan tâm đến sức khỏe, công việc và những dự định của anh.")
+    if tag == HANH_TAG:
+        _p.age = 18
+        _p.nick = "Hạnh"
+        _p.opener = rng.choice(HANH_OPENERS)
+        _p.charm = "hiền, nhút nhát, thật thà, dễ khóc, biết nghĩ nhưng đang rất rối"
+        _p.facts = ""
+        _p.backstory = HANH_BACK
     return _p
