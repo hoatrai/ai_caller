@@ -411,4 +411,6 @@ def make_persona(account: dict, display_name: str, rng: random.Random | None = N
         _p.charm = "hiền, nhút nhát, thật thà, dễ khóc, biết nghĩ nhưng đang rất rối"
         _p.facts = ""
         _p.backstory = HANH_BACK
+    if username == "anvy":      # anvy xưng "Vy"
+        _p.nick = "Vy"
     return _p
