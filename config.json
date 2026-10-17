@@ -1035,7 +1035,8 @@
     "fish_top_ratio": 0.0,
     "vieneu_voices_female": [
       "mien tay 1",
-      "dieu dang 1"
+      "dieu dang 1",
+      "moon"
     ],
     "vieneu_voice_map": {
       "kieuthom": "mien tay 1",
@@ -1084,7 +1085,7 @@
       "nguyenhang": "dieu dang 1",
       "nhanhthang": "Đức Trí",
       "hanhtay": "mien tay 1",
-      "moon": "dieu dang 1",
+      "moon": "moon",
       "huyentrang": "mien tay 1",
       "ngancharm": "dieu dang 1",
       "nana": "mien tay 1",
