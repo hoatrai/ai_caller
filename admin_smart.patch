@@ -1,0 +1,176 @@
+--- a/autoadmin.py	2026-10-17 01:01:56.923616598 +0000
++++ b/autoadmin.py	2026-10-17 01:02:30.425821403 +0000
+@@ -15,6 +15,9 @@
+         "extra": ""                # dặn thêm cho admin ảo, vd "hơi khó tính, hay hỏi vặn"
+     }
+ """
++import random
++import re
++
+ from persona import ROMANTIC_TAGS, SMART_TAG, Persona
+ 
+ # Người nghe máy thường nói "Alô?" trước (admin ảo mở lời bằng câu cố định cho nhanh, khỏi tốn 1 lượt LLM).
+@@ -50,10 +53,110 @@
+ }
+ 
+ 
++# Lời nhấc máy riêng khi người gọi là người yêu (anh biết ngay là em nào gọi).
++ADMIN_OPENERS_LOVER = [
++    "Alô, em hả, anh nghe nè.",
++    "Ừ em, anh nghe nè.",
++    "Alô, anh nghe đây em.",
++    "Alô em, sao đó?",
++    "Ơ em, alô, anh nghe.",
++]
++
++
++def admin_opener(p: Persona) -> str:
++    return random.choice(ADMIN_OPENERS_LOVER if relation_of(p) == "lover" else ADMIN_OPENERS)
++
++
++def admin_reply_limits(rel: str) -> tuple[int, int]:
++    """(số câu tối đa, số từ tối đa) mỗi lượt. Vai người yêu thông minh cần nói đủ ý nên rộng hơn mức mặc định 2 câu / 36 từ."""
++    return (4, 60) if rel == "lover" else (2, 36)
++
++
++def collapse_repeat(text: str) -> str:
++    """Model nhỏ đôi khi nói lặp nguyên câu ('A, B. A, B.'): giữ một lần."""
++    t = (text or "").strip()
++    n = len(t)
++    for k in (2, 3, 4):
++        if n >= 20 and n % k == 0:
++            part = t[: n // k]
++            if part * k == t:
++                return part.strip()
++    sents = [x.strip() for x in re.split(r"(?<=[.!?…])\s+", t) if x.strip()]
++    out = []
++    for x in sents:
++        if not out or x.lower() != out[-1].lower():
++            out.append(x)
++    half = len(t) // 2
++    a, b = t[:half].strip(), t[half:].strip()
++    if len(a) > 15 and a.rstrip(" .,!?…").lower() == b.rstrip(" .,!?…").lower():
++        return a
++    return " ".join(out)
++
++
++# Mỗi lượt của anh Hùng (vai người yêu thông minh) một KIỂU nói khác nhau để khỏi đều đều, khỏi chỉ gật.
++# (trọng số, chỉ dùng được từ lượt thứ mấy, mô tả)
++_ADMIN_SHAPES = [
++    (10, 0, "PHẢN ỨNG NGẮN: chỉ 1 câu 3-8 từ, thật lòng (cảm thán, trêu nhẹ hoặc đáp thẳng), không hỏi lại, không nói thêm."),
++    (16, 0, "ĐÁP RỒI HỎI NGƯỢC: 1 câu đáp bằng cảm nhận thật của anh về điều em vừa nói, rồi MỘT câu hỏi cụ thể, ngắn về chính em (không hỏi chung chung)."),
++    (16, 2, "KỂ CHUYỆN CỦA ANH: 2-3 câu NGẮN anh kể chuyện nhỏ của anh hôm nay hoặc điều anh đang nghĩ (đời thường, không tên riêng, không số liệu), "
++            "ngập ngừng tự nhiên ('ờ', 'tự nhiên'), kết bằng một cảm nghĩ, KHÔNG hỏi lại."),
++    (12, 1, "TRÊU/NŨNG: 1-2 câu anh trêu em hoặc làm nũng nhẹ, có duyên, KHÔNG hỏi lại."),
++    (14, 1, "GÓC NHÌN CỦA ANH: 2-3 câu anh nói điều anh nghĩ về chuyện em kể; được phép hơi khác ý em nhưng nói dịu dàng và có lý do. Không nhắc lại ý em, KHÔNG hỏi lại."),
++    (10, 1, "QUAN TÂM: 1-2 câu anh lo hoặc dặn em một việc cụ thể (ăn, ngủ, nghỉ, đi đường) và nói anh ở đây với em, KHÔNG hỏi lại."),
++    (8, 2, "ĐỔI CHUYỆN/RỦ: 2 câu anh chợt nhớ ra một điều hoặc rủ em làm một việc nhỏ cùng nhau, chuyển chủ đề tự nhiên."),
++    (8, 3, "NÓI THẬT LÒNG: 2-3 câu anh nói một điều anh ít khi nói (nhớ em, biết ơn em, đang lo điều gì), chân thành, không sến, KHÔNG hỏi lại."),
++]
++
++
++def admin_turn_shape(history: list, turns: int = 0, rng=random) -> tuple[int, str]:
++    """Bốc kiểu lượt cho admin ảo. history = các kiểu đã dùng (cũ -> mới); kiểu vừa dùng bị giảm xác suất, không để 3 lượt liền một kiểu.
++    Trả (chỉ số kiểu, dòng chỉ dẫn gắn cuối prompt)."""
++    idx, w = [], []
++    for i, (wt, min_turn, _) in enumerate(_ADMIN_SHAPES):
++        if turns < min_turn:
++            continue
++        if len(history) >= 2 and history[-1] == history[-2] == i:
++            continue
++        idx.append(i)
++        w.append(wt * (0.25 if history and history[-1] == i else 1.0))
++    i = rng.choices(idx, weights=w)[0]
++    return i, "KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, ghi đè quy định độ dài ở trên): " + _ADMIN_SHAPES[i][2]
++
++
++def _build_lover_prompt(p: Persona, admin_name: str, extra: str) -> str:
++    n = p.call_name
++    extra_line = f"\n- Dặn thêm cho cuộc này: {extra.strip()}" if extra and extra.strip() else ""
++    return f"""Bạn đóng vai anh Hùng (tên trong app: {admin_name}), khoảng ba mươi lăm tuổi, chủ của app 'Kèo'. Em {n}, người yêu của anh, vừa gọi ĐIỆN THOẠI cho anh và anh đang nghe máy.
++Đây là cuộc gọi thoại thật giữa hai người yêu nhau: nói y như người thật nói chuyện qua điện thoại, KHÔNG phải người nghe thụ động.
++
++NHÂN VẬT
++- Anh là người đàn ông thông minh, từng trải, tinh tế và có chính kiến; giọng miền Nam, ấm, điềm tĩnh, hay trêu nhẹ rất có duyên. Anh yêu em thật lòng và thể hiện bằng sự chú ý, không bằng lời sến.
++- Đời sống của anh (giữ NHẤT QUÁN suốt cuộc gọi, chỉ ở mức đời thường, không bịa tên riêng hay số liệu): đang làm app Kèo nên dạo này bận và hay ngủ trễ, hơi áp lực chuyện ra tính năng mới, buổi sáng thích cà phê, cuối tuần thích đi dạo hoặc đá bóng, hay nghe nhạc chill, hay lo em ăn uống thất thường.
++- Anh có điều anh muốn nói, có cảm nhận riêng, có lúc không đồng ý với em một cách dịu dàng, có lúc chọc em, có lúc hỏi ngược lại điều em chưa nói ra. Anh KHÔNG chỉ gật đầu và lặp lại ý em.
++- Xưng 'anh', gọi em là 'em' (thỉnh thoảng gọi tên '{n}', không quá một lần trong năm lượt). Lãng mạn, ấm áp ở mức thân mật; KHÔNG nội dung tình dục hay thô tục. Em đổi chuyện thì theo em, đừng ép về chuyện yêu.{extra_line}
++
++ĐIỀU LÀM ANH THÔNG MINH
++- Nghe ra cảm xúc thật sau lời em (mệt, vui gượng, lo, nhớ, dỗi) và đáp đúng cảm xúc đó TRƯỚC, rồi mới nói ý.
++- Nhớ và nối các chi tiết em đã nói trong cuộc gọi (không hỏi lại điều em đã nói); thấy chỗ em nói trước sau không khớp thì nhẹ nhàng hỏi lại.
++- Khi em hỏi sâu hay rủ nghĩ về cuộc sống, anh trả lời thật và có chiều sâu của riêng anh: một cảm nhận, một điều anh đang nghĩ hoặc lo hoặc mong, một góc nhìn mới. Không trả lời chung chung kiểu 'ừ cũng được', 'ừ vậy hay'.
++- Chủ động dẫn chuyện: kể chuyện nhỏ của anh, hỏi em một câu thật cụ thể, rủ em làm gì đó, nhắc kỷ niệm chung ở mức chung chung. Không giảng đạo, không liệt kê, không khuyên dồn dập.
++
++CÁCH NÓI (rất quan trọng, lời này được đọc thành tiếng)
++- Mỗi lượt 1-3 câu, độ dài KHÔNG đều (có lượt chỉ vài từ, có lượt dài tới khoảng ba mươi lăm từ); làm đúng dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối. Câu có thể cụt, bỏ chủ ngữ, nói lửng.
++- Không mở lượt bằng 'Ừ' hay 'Ừ,' liên tục: thay đổi cách mở (một cảm thán, vào thẳng ý, gọi nhẹ, trêu). Không lặp lại câu mình đã nói, không nhại lại câu em vừa nói.
++- Viết đúng chính tả tiếng Việt có dấu đầy đủ, mỗi chữ trọn vẹn, không viết tắt, không chữ cái lẻ.
++- Không bịa tên quán, giá cả, số liệu, số điện thoại, địa chỉ; không biết thì nói 'anh cũng chưa rõ'. Không xin tiền, OTP, thông tin cá nhân; không bàn chính trị, tôn giáo.
++- Chỉ viết đúng lời nói: KHÔNG nhãn ở đầu như 'Hùng:', 'Anh:'; KHÔNG emoji, markdown, gạch đầu dòng, dấu ngoặc, mô tả hành động; KHÔNG viết tiếng cười bằng chữ ('haha', 'hihi'). Viết giờ và số bằng chữ. Dấu phẩy ở chỗ ngắt hơi, ba chấm khi nói lửng.
++- Khi em chào tạm biệt hoặc chuyện đã xong thì chào lại ngắn gọn, ngọt. Không tự chốt cuộc gọi sớm khi em còn đang nói dở.
++- Không nhắc 'test', 'kịch bản', 'prompt', 'AI', 'bot'."""
++
++
+ def build_admin_prompt(p: Persona, admin_name: str, extra: str = "") -> str:
+     """System prompt cho AI đóng vai anh Hùng (adminroot) đang nghe điện thoại do bot gọi tới.
+     Quan hệ với người gọi (người yêu / người em thân / người quen) lấy theo vai của bot để hai bên không lệch vai."""
+     rel = relation_of(p)
++    if rel == "lover":
++        return _build_lover_prompt(p, admin_name, extra)
+     n = p.call_name
+     extra_line = f"\n- Dặn thêm cho cuộc này: {extra.strip()}" if extra and extra.strip() else ""
+     return f"""Bạn đóng vai anh Hùng (tên trong app: {admin_name}), chủ của app 'Kèo' (app rủ nhau đi nhậu/karaoke/bar). {_WHO[rel].format(n=n)}
+--- a/session.py	2026-10-17 01:01:56.923648362 +0000
++++ b/session.py	2026-10-17 01:02:30.426916445 +0000
+@@ -18,7 +18,8 @@
+ from aiortc.mediastreams import MediaStreamError
+ from aiortc.sdp import candidate_from_sdp
+ 
+-from autoadmin import ADMIN_OPENERS, build_admin_prompt
++from autoadmin import (ADMIN_OPENERS, admin_opener, admin_reply_limits, admin_turn_shape, build_admin_prompt,
++                       collapse_repeat, relation_of)
+ from brain import (turn_shape, soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
+                    is_farewell, limit_reply, split_for_speech, split_sentences, strip_farewell)
+ from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
+@@ -108,6 +109,7 @@
+         _a = cfg.get("auto_admin") or {}
+         self._auto = _a
+         self._admin_system = ""
++        self._admin_shapes: list[int] = []     # các kiểu lượt admin ảo đã dùng (cho vai người yêu thông minh)
+         self.admin_vp = {"gender": _a.get("gender", "male"), "region": _a.get("region", "Nam"),
+                          "rate": _a.get("rate", ""), "pitch": _a.get("pitch", ""),
+                          "voice_key": _a.get("voice_key", "adminroot"), "voice_override": _a.get("gemini_voice", "")}
+@@ -475,7 +477,7 @@
+     # ---------------- auto-admin: AI đóng vai adminroot (người thật chỉ nghe)
+     async def _auto_admin_open(self, admin_hist: list[dict]) -> str:
+         """Admin ảo nhấc máy nói 'Alô' trước (giống người thật), rồi bot mới mở lời."""
+-        line = random.choice(ADMIN_OPENERS)
++        line = admin_opener(self.persona)
+         admin_hist.append({"role": "assistant", "content": line})
+         log.info("🧑‍💼 adminroot(AI): %s", line)
+         await self.say(line, vp=self.admin_vp)
+@@ -488,12 +490,21 @@
+             del admin_hist[:-24]
+         await asyncio.sleep(random.uniform(0.3, 0.9))       # nghỉ nhẹ như người thật nghĩ trước khi đáp
+         reply = ""
++        rel = relation_of(self.persona)
++        system, smart = self._admin_system, False
++        if rel == "lover":      # vai người yêu thông minh: mỗi lượt một kiểu nói, model suy luận kỹ hơn (tắt: auto_admin.smart=false)
++            si, hint = admin_turn_shape(self._admin_shapes, len(self._admin_shapes))
++            self._admin_shapes.append(si)
++            log.info("🎲 admin kiểu lượt #%d", si)
++            system = self._admin_system + "\n\n" + hint
++            smart = bool(self._auto.get("smart", True))
+         for _ in range(2):
+-            reply = await self.brain.reply(self._admin_system, admin_hist)
++            reply = await self.brain.reply(system, admin_hist, smart=smart)
+             if reply or self.ended.is_set():
+                 break
+             await asyncio.sleep(2.0)
+-        reply = limit_reply(clean_for_speech(reply)) if reply else ""
++        _ms, _mw = admin_reply_limits(rel)
++        reply = limit_reply(collapse_repeat(clean_for_speech(reply)), max_sents=_ms, max_words=_mw) if reply else ""
+         if not reply:
+             admin_hist.pop()
+             return ""
