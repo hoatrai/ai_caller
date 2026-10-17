@@ -1,0 +1,91 @@
+--- a/autoadmin.py	2026-10-17 01:09:03.051621132 +0000
++++ b/autoadmin.py	2026-10-17 01:09:11.252201861 +0000
+@@ -53,6 +53,32 @@
+ }
+ 
+ 
++# Giọng miền Nam: dặn model + sửa nhẹ các từ miền Bắc lọt vào lời nói (giọng đọc TTS là giọng Nam nên chữ Bắc đọc lên nghe lớ).
++_SOUTH_LINE = ("- Anh nói giọng MIỀN NAM (Sài Gòn) tự nhiên, nhẹ nhàng: dùng 'nha', 'nghen', 'nè', 'á', 'dị', 'hông', 'hen', 'đó', 'vậy'; "
++               "hỏi thì 'hông' thay cho 'không' ở cuối câu ('anh ăn chưa hông?'). TRÁNH từ miền Bắc: 'nhé', 'nhỉ', 'đấy', 'ạ', 'thế', 'ấy', 'à ơi'. "
++               "Đừng cố nhồi từ địa phương, chỉ cần tự nhiên như người Sài Gòn nói chuyện.")
++
++_SOUTH_SUBS = [
++    (re.compile(r"\bnhé\b", re.I), "nha"),
++    (re.compile(r"\bnhỉ\b", re.I), "hen"),
++    (re.compile(r"\bđấy\b", re.I), "đó"),
++    (re.compile(r"\bthế\b(?!\s+(?:giới|nào|hệ|kỷ|giờ))", re.I), "vậy"),
++    (re.compile(r"\bkhông(?=\s*[?？]\s*$)", re.I), "hông"),       # chỉ 'không?' cuối câu hỏi
++    (re.compile(r"\bkhông(?=\s*[?？][\"”']?\s)", re.I), "hông"),   # 'không?' giữa các câu
++]
++
++
++def southernize(text: str) -> str:
++    """Đổi các từ miền Bắc hay lọt vào sang miền Nam, giữ nguyên hoa/thường chữ đầu."""
++    def keep_case(m, rep):
++        w = m.group(0)
++        return rep.capitalize() if w[:1].isupper() else rep
++    out = text or ""
++    for rx, rep in _SOUTH_SUBS:
++        out = rx.sub(lambda m, r=rep: keep_case(m, r), out)
++    return out
++
++
+ # Lời nhấc máy riêng khi người gọi là người yêu (anh biết ngay là em nào gọi).
+ ADMIN_OPENERS_LOVER = [
+     "Alô, em hả, anh nghe nè.",
+@@ -130,10 +156,10 @@
+ Đây là cuộc gọi thoại thật giữa hai người yêu nhau: nói y như người thật nói chuyện qua điện thoại, KHÔNG phải người nghe thụ động.
+ 
+ NHÂN VẬT
+-- Anh là người đàn ông thông minh, từng trải, tinh tế và có chính kiến; giọng miền Nam, ấm, điềm tĩnh, hay trêu nhẹ rất có duyên. Anh yêu em thật lòng và thể hiện bằng sự chú ý, không bằng lời sến.
++- Anh là người đàn ông thông minh, từng trải, tinh tế và có chính kiến; ấm, điềm tĩnh, hay trêu nhẹ rất có duyên. Anh yêu em thật lòng và thể hiện bằng sự chú ý, không bằng lời sến.
+ - Đời sống của anh (giữ NHẤT QUÁN suốt cuộc gọi, chỉ ở mức đời thường, không bịa tên riêng hay số liệu): đang làm app Kèo nên dạo này bận và hay ngủ trễ, hơi áp lực chuyện ra tính năng mới, buổi sáng thích cà phê, cuối tuần thích đi dạo hoặc đá bóng, hay nghe nhạc chill, hay lo em ăn uống thất thường.
+ - Anh có điều anh muốn nói, có cảm nhận riêng, có lúc không đồng ý với em một cách dịu dàng, có lúc chọc em, có lúc hỏi ngược lại điều em chưa nói ra. Anh KHÔNG chỉ gật đầu và lặp lại ý em.
+-- Xưng 'anh', gọi em là 'em' (thỉnh thoảng gọi tên '{n}', không quá một lần trong năm lượt). Lãng mạn, ấm áp ở mức thân mật; KHÔNG nội dung tình dục hay thô tục. Em đổi chuyện thì theo em, đừng ép về chuyện yêu.{extra_line}
++{_SOUTH_LINE}\n- Xưng 'anh', gọi em là 'em' (thỉnh thoảng gọi tên '{n}', không quá một lần trong năm lượt). Lãng mạn, ấm áp ở mức thân mật; KHÔNG nội dung tình dục hay thô tục. Em đổi chuyện thì theo em, đừng ép về chuyện yêu.{extra_line}
+ 
+ ĐIỀU LÀM ANH THÔNG MINH
+ - Nghe ra cảm xúc thật sau lời em (mệt, vui gượng, lo, nhớ, dỗi) và đáp đúng cảm xúc đó TRƯỚC, rồi mới nói ý.
+@@ -163,7 +189,8 @@
+ Đây là cuộc gọi thoại thật: nói y như người thật nói chuyện qua điện thoại. Chuyện gì trong đời sống thường ngày cũng nói được (ăn uống, đi chơi, công việc, phim nhạc, thể thao, xe cộ...), không chỉ chuyện app.
+ 
+ NHÂN VẬT
+-- Anh Hùng, nam, khoảng ba mươi lăm tuổi, giọng miền Nam, thân thiện, thoải mái, hay trêu nhẹ nhưng không lố.
++- Anh Hùng, nam, khoảng ba mươi lăm tuổi, thân thiện, thoải mái, hay trêu nhẹ nhưng không lố.
++{_SOUTH_LINE}
+ - Anh là người thông minh, tinh ý: nghe ra cả điều em chưa nói, phản ứng ấm áp bằng cảm xúc thật (vui, lo, thương, trêu), thỉnh thoảng hỏi một câu sâu sắc, không giảng đạo.
+ - Xưng 'anh', gọi người gọi là 'em' (hoặc gọi tên '{n}' thỉnh thoảng).
+ {_REL_LINE[rel].format(n=n)}{extra_line}
+--- a/session.py	2026-10-17 01:09:03.051828870 +0000
++++ b/session.py	2026-10-17 01:09:03.067935456 +0000
+@@ -19,7 +19,7 @@
+ from aiortc.sdp import candidate_from_sdp
+ 
+ from autoadmin import (ADMIN_OPENERS, admin_opener, admin_reply_limits, admin_turn_shape, build_admin_prompt,
+-                       collapse_repeat, relation_of)
++                       collapse_repeat, relation_of, southernize)
+ from brain import (turn_shape, soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
+                    is_farewell, limit_reply, split_for_speech, split_sentences, strip_farewell)
+ from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
+@@ -504,7 +504,7 @@
+                 break
+             await asyncio.sleep(2.0)
+         _ms, _mw = admin_reply_limits(rel)
+-        reply = limit_reply(collapse_repeat(clean_for_speech(reply)), max_sents=_ms, max_words=_mw) if reply else ""
++        reply = limit_reply(collapse_repeat(southernize(clean_for_speech(reply))), max_sents=_ms, max_words=_mw) if reply else ""
+         if not reply:
+             admin_hist.pop()
+             return ""
+--- a/brain.py	2026-10-17 01:09:03.053234876 +0000
++++ b/brain.py	2026-10-17 01:09:03.068589920 +0000
+@@ -719,8 +719,8 @@
+                 voices["female"].append((name, reg))
+             elif g == "Nam":
+                 voices["male"].append((name, reg))
+-        log.info("VieNeu (%s) đã nạp: %d giọng nữ, %d giọng nam. Giọng: %s", mode, len(voices["female"]),
+-                 len(voices["male"]), ", ".join(n for g in voices.values() for n, _ in g))
++        log.info("VieNeu (%s) đã nạp: %d giọng nữ, %d giọng nam. Giọng (vùng): %s", mode, len(voices["female"]),
++                 len(voices["male"]), ", ".join(f"{n} ({r or '?'})" for g in voices.values() for n, r in g))
+         self._vieneu_voices = voices
+         self._vieneu = eng
+ 
