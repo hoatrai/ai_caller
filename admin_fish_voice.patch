@@ -1,0 +1,29 @@
+--- brain.py	2026-10-17 02:36:04.935719054 +0000
++++ brain.py	2026-10-17 02:36:04.950104332 +0000
+@@ -627,6 +627,16 @@
+         tts = self.cfg["tts"]
+         if os.getenv("FISH_VOICE_ID"):          # ép 1 giọng khi gọi thử: FISH_VOICE_ID=<id> python main.py ...
+             return os.getenv("FISH_VOICE_ID")
++        forced = (tts.get("fish_voice_map") or {}).get(voice_key)      # gán cứng: {"adminroot": "<id đủ 32 ký tự hoặc 8 ký tự đầu>"}
++        if forced:
++            if len(forced) >= 32:
++                return forced
++            for k in ("fish_voices_male", "fish_voices_female", "fish_voices_male_top", "fish_voices_female_top"):
++                for v in (tts.get(k) or []):
++                    if v and v.startswith(forced):
++                        return v
++            log.warning("fish_voice_map[%s]=%s: không tra ra id đủ 32 ký tự (chạy pin_admin_fish.py)", voice_key, forced)
++            return forced
+         g = "female" if gender == "female" else "male"
+         pool = [v for v in (tts.get(f"fish_voices_{g}") or []) if v]
+         top = [v for v in (tts.get(f"fish_voices_{g}_top") or []) if v]
+@@ -889,6 +899,9 @@
+         if not text:
+             return b""
+         tts = self.cfg["tts"]
++        if (tts.get("fish_voice_map") or {}).get(voice_key) and os.getenv("FISH_API_KEY") \
++                and time.monotonic() >= self._fish_block_until:
++            return await self._synth_fish_or_fallback(text, gender, rate, region, pitch, voice_key)   # giọng Fish gán cứng (vd adminroot)
+         if engine == "fish" or (not engine and tts.get("provider") == "fish"):
+             return await self._synth_fish_or_fallback(text, gender, rate, region, pitch, voice_key)
+         if engine == "vieneu":          # đã chốt cho cả cuộc gọi: không lùi sang engine khác

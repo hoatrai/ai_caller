@@ -1,0 +1,68 @@
+--- a/autoadmin.py	2026-10-17 01:40:01.006184078 +0000
++++ b/autoadmin.py	2026-10-17 01:40:01.045752785 +0000
+@@ -93,9 +93,11 @@
+     return random.choice(ADMIN_OPENERS_LOVER if relation_of(p) == "lover" else ADMIN_OPENERS)
+ 
+ 
+-def admin_reply_limits(rel: str) -> tuple[int, int]:
+-    """(số câu tối đa, số từ tối đa) mỗi lượt. Vai người yêu thông minh cần nói đủ ý nên rộng hơn mức mặc định 2 câu / 36 từ."""
+-    return (2, 24) if rel == "lover" else (2, 36)
++def admin_reply_limits(rel: str, shape: int = -1) -> tuple[int, int]:
++    """(số câu tối đa, số từ tối đa) mỗi lượt. Vai người yêu: lượt thường ngắn (2 câu / 24 từ), các kiểu 'dài xíu' được nới (3 câu / 42 từ)."""
++    if rel != "lover":
++        return (2, 36)
++    return _ADMIN_LONG_LIMIT if shape in _ADMIN_LONG_SHAPES else (2, 24)
+ 
+ 
+ def collapse_repeat(text: str) -> str:
+@@ -130,7 +132,12 @@
+     (8, 2, "KỂ NHANH: 1-2 câu RẤT NGẮN anh kể chuyện đời thường vừa xảy ra với anh (đang ăn gì, đang làm gì, vừa thấy gì), như nhắn tin cho người yêu; không văn vẻ."),
+     (8, 2, "RỦ/ĐỔI CHUYỆN: đúng 1 câu ngắn rủ em làm việc nhỏ cùng nhau hoặc chợt nhớ ra một chuyện khác."),
+     (8, 3, "NHỚ EM: đúng 1 câu ngắn nói nhớ hoặc thương em theo kiểu đời thường ('nhớ em ghê', 'muốn gặp em liền'), không so sánh, không hoa mỹ."),
++    # --- Lâu lâu nói dài xíu (khoảng 1/6 lượt): vẫn đời thường, câu ngắn nối nhau, KHÔNG văn vẻ ---
++    (9, 2, "NÓI DÀI XÍU: 2-3 câu ngắn nối nhau (tổng khoảng 20-35 từ), anh kể một chuyện đời thường của anh hôm nay hoặc nói thêm về chuyện em vừa kể, giọng tâm sự như nói với người yêu; mỗi câu vẫn ngắn, KHÔNG văn vẻ, KHÔNG so sánh hoa mỹ."),
++    (7, 3, "TÂM SỰ: 2-3 câu ngắn (tổng khoảng 20-35 từ), anh nói thật một điều anh đang nghĩ hoặc đang lo (công việc, ngủ trễ, nhớ em...) bằng lời đời thường, rồi dừng; không giảng đạo, không hoa mỹ."),
+ ]
++_ADMIN_LONG_SHAPES = {8, 9}          # chỉ số các kiểu 'dài xíu' ở trên
++_ADMIN_LONG_LIMIT = (3, 42)
+ 
+ 
+ def admin_turn_shape(history: list, turns: int = 0, rng=random) -> tuple[int, str]:
+@@ -145,7 +152,7 @@
+         idx.append(i)
+         w.append(wt * (0.25 if history and history[-1] == i else 1.0))
+     i = rng.choices(idx, weights=w)[0]
+-    return i, "KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, càng ngắn càng tốt, KHÔNG dài hơn): " + _ADMIN_SHAPES[i][2]
++    return i, "KIỂU LỜI NÓI LƯỢT NÀY (bắt buộc làm đúng, đúng độ dài của kiểu này, KHÔNG dài hơn): " + _ADMIN_SHAPES[i][2]
+ 
+ 
+ def _build_lover_prompt(p: Persona, admin_name: str, extra: str) -> str:
+@@ -161,7 +168,7 @@
+ - Xưng 'anh', gọi em là 'em' (thỉnh thoảng mới gọi tên '{n}'). Thân mật; KHÔNG nội dung tình dục hay thô tục. Em đổi chuyện thì theo em.{extra_line}
+ 
+ CÁCH NÓI (rất quan trọng: lời này được đọc thành tiếng qua điện thoại)
+-- NGẮN: đa số lượt chỉ 1 câu 4-12 từ, hiếm lắm mới tới 2 câu ngắn. Mỗi câu một ý, KHÔNG câu nào dài quá 14 từ. Làm đúng dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối.
++- NGẮN LÀ CHÍNH: đa số lượt chỉ 1 câu 4-12 từ; lâu lâu (khoảng một lượt trong sáu) mới nói dài xíu, 2-3 câu ngắn nối nhau. Độ dài ngẫu nhiên như người thật, KHÔNG lượt nào cũng dài. Mỗi câu một ý, KHÔNG câu nào dài quá 14 từ. Làm đúng dòng 'KIỂU LỜI NÓI LƯỢT NÀY' ở cuối.
+ - Nói chuyện đời thường, CỤ THỂ: ăn gì, đang ở đâu, làm gì, mấy giờ. Hay đệm 'ờ', 'ừa', 'ủa', 'à', 'hen', 'nè'. Trả lời thẳng điều em vừa nói trước, rồi mới thêm ý (nếu có).
+ - TUYỆT ĐỐI KHÔNG văn chương: cấm ẩn dụ và so sánh hoa mỹ ('như một liều thuốc', 'bến đỗ bình yên', 'tim ấm lên', 'tâm hồn', 'dịu dàng', 'đáng trân trọng', 'thật là ... làm sao'), không tổng kết, không giải thích cảm xúc của mình dài dòng, không nói như bài viết hay lời quảng cáo, không khuyên nhủ kiểu thầy giáo.
+ - Không lặp ý em vừa nói, không nhại lại câu em, không lặp câu mình đã nói. Không mở lượt bằng 'Ừ' hay 'Ừ,' liên tục: đổi cách mở (cảm thán, vào thẳng ý, trêu).
+--- a/session.py	2026-10-17 01:40:01.006535429 +0000
++++ b/session.py	2026-10-17 01:40:01.046766774 +0000
+@@ -491,7 +491,7 @@
+         await asyncio.sleep(random.uniform(0.3, 0.9))       # nghỉ nhẹ như người thật nghĩ trước khi đáp
+         reply = ""
+         rel = relation_of(self.persona)
+-        system, smart = self._admin_system, False
++        system, smart, si = self._admin_system, False, -1
+         if rel == "lover":      # vai người yêu: mỗi lượt một kiểu nói NGẮN (bật suy luận kỹ: auto_admin.smart=true)
+             si, hint = admin_turn_shape(self._admin_shapes, len(self._admin_shapes))
+             self._admin_shapes.append(si)
+@@ -504,7 +504,7 @@
+             if reply or self.ended.is_set():
+                 break
+             await asyncio.sleep(2.0)
+-        _ms, _mw = admin_reply_limits(rel)
++        _ms, _mw = admin_reply_limits(rel, si)
+         reply = limit_reply(collapse_repeat(southernize(clean_for_speech(reply))), max_sents=_ms, max_words=_mw) if reply else ""
+         if not reply:
+             admin_hist.pop()
