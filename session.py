@@ -615,8 +615,8 @@ class CallSession:
                 reason = "bot_hangup_tag"
                 await asyncio.sleep(1.2)      # chờ đuôi lời chào kịp tới điện thoại rồi mới cúp, khỏi cụt chữ
                 break
-            if len(history) > 24:      # giữ ngữ cảnh gọn cho free-tier
-                history = history[-24:]
+            if len(history) > 12:      # giữ ngữ cảnh gọn cho free-tier
+                history = history[-12:]
 
             # chờ adminroot nói. Tiếng ồn/im lặng bị Whisper "bịa" (đã lọc -> rỗng) thì chờ tiếp, KHÔNG bắt bot
             # đòi "anh nói lại"; chỉ khi liên tiếp nhiều lần mới hỏi lại.
