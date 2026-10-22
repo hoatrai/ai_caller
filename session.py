@@ -23,7 +23,7 @@ from autoadmin import (ADMIN_OPENERS, admin_opener, admin_reply_limits, admin_tu
 from brain import (turn_shape, soften_vocative, HANGUP_TAG, Brain, build_system_prompt, stage_hint, clean_for_speech, humanize_reply,
                    is_farewell, limit_reply, split_for_speech, split_sentences, strip_farewell)
 from media import BotVoiceTrack, FrameResampler16k, UtteranceDetector
-from persona import HANH_TAG, ROMANTIC_TAGS, SMART_TAG, Persona, _fold
+from persona import HANH_TAG, ROMANTIC_TAGS, SMART_TAG, Persona, _fold, PARTNER_TAG
 from rhythm import jitter_rate, pause_after_ms, polish_chunk, silence_pcm
 from signaling import PhoenixRoom
 
@@ -452,7 +452,7 @@ class CallSession:
 
     async def _reply_with_filler(self, system: str, history: list[dict]) -> str:
         """Gọi LLM; nếu quá lâu chưa có câu trả lời thì nói 1 tiếng đệm ('ờm...') như người đang nghĩ, khỏi im bặt."""
-        task = asyncio.create_task(self.brain.reply(system, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG))))
+        task = asyncio.create_task(self.brain.reply(system, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG, PARTNER_TAG))))
         try:
             tts_cfg = self.cfg["tts"]
             if self.turns >= 1 and self._fillers and tts_cfg.get("human_rhythm", True) and tts_cfg.get("filler", True):
@@ -503,8 +503,10 @@ class CallSession:
             if reply or self.ended.is_set():
                 break
             await asyncio.sleep(2.0)
-        _ms, _mw = admin_reply_limits(rel)
-        reply = limit_reply(collapse_repeat(southernize(clean_for_speech(reply))), max_sents=_ms, max_words=_mw) if reply else ""
+        from persona import PINGPONG_USERS as _PPU, SMART_TAG as _ST      # chốt cứng độ dài cho cuộc bóng bàn
+        _ms, _mw = admin_reply_limits(rel, self.persona)
+        _pp = (self.persona.scenario_tag == _ST and self.persona.username.lower() in _PPU)
+        reply = limit_reply(collapse_repeat(southernize(clean_for_speech(reply))), max_sents=_ms, max_words=_mw, pp=_pp) if reply else ""
         if not reply:
             admin_hist.pop()
             return ""
@@ -525,6 +527,8 @@ class CallSession:
         end_requested = False      # cuộc gọi tình yêu: chỉ cúp khi anh Hùng nói muốn cúp máy
         if romantic:
             deadline = time.time() + int(cfg.get("romantic_max_call_seconds", 3600))     # mặc định tối đa 1 giờ
+        elif self.persona.scenario_tag == PARTNER_TAG:
+            deadline = time.time() + int(cfg.get("partner_max_call_seconds", 900))     # cuộc bàn việc: tối đa 15 phút
         reason = "ended_by_peer"
         shape_hist: list[int] = []     # các kiểu lượt đã dùng (vai thông minh bốc kiểu khác nhau mỗi lượt)
         admin_hist: list[dict] = []    # lịch sử của admin ảo (vai đảo: lời bot = user, lời admin ảo = assistant)
@@ -579,7 +583,7 @@ class CallSession:
                         ]))
                     await asyncio.sleep(float(cfg.get("llm_retry_wait_seconds", 5)))
                     log.info("Thử lại LLM lần %d sau khi tất cả provider lỗi", k + 1)
-                    reply = await self.brain.reply(turn_prompt, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG)))
+                    reply = await self.brain.reply(turn_prompt, history, smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG, PARTNER_TAG)))
                     if reply:
                         break
             if not reply:      # LLM hỏng hẳn: nói câu an toàn rồi kết thúc, đừng im lặng
@@ -597,7 +601,7 @@ class CallSession:
                 log.info("Bỏ qua thẻ cúp máy quá sớm (lượt %d < %d)", self.turns + 1, min_turns)
                 hangup = False
                 suppressed = True
-            spoken = humanize_reply(clean_for_speech(reply), smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG)))
+            spoken = humanize_reply(clean_for_speech(reply), smart=(self.persona.scenario_tag in (SMART_TAG, HANH_TAG, PARTNER_TAG)))
             if romantic and self.persona.scenario_tag != HANH_TAG:
                 spoken = soften_vocative(spoken, history)
             if hangup and not is_farewell(spoken):
